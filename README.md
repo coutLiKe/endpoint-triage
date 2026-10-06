@@ -7,7 +7,7 @@ runs with one command to collect common endpoint diagnostics and produce a
 report that can be attached to a support ticket.
 
 ```bash
-python -m endpoint_triage
+python endpoint-triage.pyz
 ```
 
 It answers one question:
@@ -16,10 +16,14 @@ It answers one question:
 > computer without making any changes to the system?*
 
 - Python 3.11+, **standard library only**: nothing to `pip install`
+- Ships as **one file** (`endpoint-triage.pyz`) with a SHA-256 checksum
 - Works on **macOS, Windows and Linux**, without admin/root rights
-- Produces a ticket-ready **`.txt` report** and a structured **`.json` report**
-- Highlights **findings** (CRITICAL / WARNING / INFO) at the top of the report
-- Never changes the system, never sends data anywhere
+- Produces a ticket-ready **`.txt` report** and a versioned **`.json` report**
+- Highlights **findings** (CRITICAL / WARNING / INFO) with stable IDs at the top of the report
+- Never changes the system and never sends collected data anywhere
+
+Security review: see [SECURITY.md](SECURITY.md) for every command it runs,
+every network destination, the data it collects, and the threat model.
 
 ---
 
@@ -38,7 +42,7 @@ It answers one question:
 11. [Error handling](#error-handling)
 12. [Privacy and read-only design](#privacy-and-read-only-design)
 13. [Testing](#testing)
-14. [Continuous integration](#continuous-integration)
+14. [Continuous integration and releases](#continuous-integration-and-releases)
 15. [Known limitations](#known-limitations)
 
 ---
@@ -51,7 +55,7 @@ have an IP address? Can it reach the gateway, the internet, DNS? Are updates
 pending?* Technicians collect these by hand with a dozen different commands,
 and the commands differ on every OS.
 
-Endpoint Triage runs those checks consistently, in about 10–30 seconds,
+Endpoint Triage runs those checks consistently, typically in 10–30 seconds,
 and writes the answers into a report that can be attached to the ticket. That
 report gives a Tier 2 engineer the same baseline facts every time and avoids
 a "can you run this command for me?" round trip.
@@ -61,7 +65,36 @@ database, no remediation.
 
 ## Installation
 
-Requirements: **Python 3.11 or newer**. No third-party packages.
+**Prerequisite: Python 3.11 or newer on the endpoint.** Python is preinstalled
+on most Linux distributions, but not on Windows or managed Macs. Deploy it the
+way you deploy other software, for example:
+
+| OS | Typical way to provide Python |
+|---|---|
+| Windows | `winget install Python.Python.3.13`, or push the python.org installer with Intune / SCCM / your RMM |
+| macOS | python.org installer or Homebrew, or push a package with Jamf / your MDM |
+| Linux | Usually present (`python3 --version`); otherwise install `python3` with the package manager |
+
+On an older Python the tool stops with a clear "requires Python 3.11" message.
+
+### Option 1: single-file release (recommended)
+
+Download `endpoint-triage.pyz` and `endpoint-triage.pyz.sha256` from the
+[latest release](https://github.com/coutLiKe/endpoint-triage/releases/latest),
+verify the checksum, and run it. There is nothing to install.
+
+```bash
+sha256sum -c endpoint-triage.pyz.sha256
+```
+
+```bash
+python3 endpoint-triage.pyz
+```
+
+On Windows (PowerShell), compare `Get-FileHash .\endpoint-triage.pyz` with
+the `.sha256` file, then run `py endpoint-triage.pyz`.
+
+### Option 2: from source
 
 ```bash
 git clone https://github.com/coutLiKe/endpoint-triage.git
@@ -69,37 +102,41 @@ cd endpoint-triage
 python -m endpoint_triage --help
 ```
 
-Optionally, install it as a command:
-
-```bash
-python -m pip install .
-endpoint-triage --help
-```
-
-On Windows, use `py` instead of `python` if `python` is not on your PATH.
+Optionally, install it as a command with `python -m pip install .`, then run
+`endpoint-triage`. To build the single file yourself, run
+`python tools/build_zipapp.py`; the output is in `dist/`.
 
 ## Usage
 
 ```bash
-python -m endpoint_triage                    # scan and write reports to ./triage-reports/
-python -m endpoint_triage --output C:\Temp   # choose the output directory
-python -m endpoint_triage --debug            # log every command to stderr and add detail to the reports
-python -m endpoint_triage --version
-python -m endpoint_triage --help
+python endpoint-triage.pyz                                   # scan and write reports to ./triage-reports/
+python endpoint-triage.pyz --output C:\Temp                  # choose the output directory
+python endpoint-triage.pyz --skip-updates                    # fast scan without the update check
+python endpoint-triage.pyz --ping-target 10.0.0.53 --dns-name intranet.corp.example
+python endpoint-triage.pyz --debug                           # log every command and add detail to the reports
 ```
+
+(From source, use `python -m endpoint_triage` instead of `python endpoint-triage.pyz`.)
 
 | Option | Purpose |
 |---|---|
-| `-o, --output DIR` | Directory for the reports (created if missing). Default: `./triage-reports` |
-| `--debug` | Logs each command, its exit code and duration to stderr, and adds raw error detail (stderr, tracebacks) to both reports |
+| `-o, --output DIR` | Directory for the reports (created if missing). Default: `./triage-reports`, or the system temp folder if the current folder is not writable |
+| `--ping-target IP` | IPv4 address for the internet ping test. Default: `1.1.1.1`. Use an internal host on networks that block outbound ping |
+| `--dns-name HOST` | Hostname for the DNS test. Default: `example.com`. Use an internal name to test split DNS or VPN DNS |
+| `--skip-updates` | Skip the pending-update check, which can take minutes and contacts update servers |
+| `--debug` | Logs each command, its exit code and duration to stderr, and adds raw error detail to both reports |
 | `--version` | Print the version and exit |
 | `-h, --help` | Show help and exit |
+
+`--ping-target` and `--dns-name` are strictly validated (an IPv4 address and an
+RFC 1123 hostname), so a value such as `--ping-target=-f` is rejected instead
+of being passed to `ping` as an option.
 
 The CLI is deliberately small. Progress messages go to **stderr** and the
 short summary goes to **stdout**, so output can be redirected cleanly:
 
 ```text
-$ python -m endpoint_triage
+$ python endpoint-triage.pyz
 Endpoint triage: running read-only diagnostics...
   - Collecting system information
   - Collecting memory and disk usage
@@ -115,6 +152,7 @@ Findings:
 
 Text report: triage-reports/triage-MacBook-Pro.local-20261006-004833.txt
 JSON report: triage-reports/triage-MacBook-Pro.local-20261006-004833.json
+Exit code 1: WARNING (at least one WARNING finding)
 ```
 
 Report files are named `triage-<hostname>-<UTC timestamp>.txt/.json`, so
@@ -122,14 +160,28 @@ repeated runs never overwrite each other.
 
 ## Supported operating systems
 
-| OS | Tested in CI | Notes |
-|---|---|---|
-| macOS 13+ (Intel and Apple Silicon) | `macos-latest` | Built-in tools only |
-| Windows 10 / 11, Windows Server 2016+ | `windows-latest` | Uses Windows PowerShell 5.1 (built in) |
-| Linux with iproute2 4.14+ (Ubuntu 18.04+, Debian 10+, RHEL/Rocky 8+, Fedora) | `ubuntu-latest` | Update detection supports `apt` and `dnf` |
+| OS | Notes |
+|---|---|
+| macOS 13+ (Intel and Apple Silicon) | Built-in tools only |
+| Windows 10 / 11, Windows Server 2016+ | Uses Windows PowerShell 5.1 (built in) |
+| Linux with iproute2 4.14+ (Ubuntu 18.04+, Debian 10+, RHEL/Rocky 8+, Fedora) | Update detection supports `apt` and `dnf` |
 
-On any other OS (for example FreeBSD) the tool still runs: the unsupported
-checks are reported as *unavailable* instead of crashing.
+On any other OS (for example FreeBSD) the tool still runs: unsupported checks
+are reported as *unavailable* and the overall status is `UNKNOWN`.
+
+### Tested on
+
+| Environment | How | Result |
+|---|---|---|
+| macOS 26 (Apple Silicon), standard user | Manual runs | All checks complete |
+| macOS (GitHub `macos-latest`) | Real scan in CI on every push | All checks complete |
+| Windows Server 2025 (GitHub `windows-latest`) | Real scan in CI on every push | All checks complete; ICMP is blocked, reported as INFO |
+| Ubuntu 24.04 (GitHub `ubuntu-latest`) | Real scan in CI on every push | All checks complete; ICMP is blocked, reported as INFO |
+
+**Not yet validated:** a domain-joined Windows 10/11 laptop running as a
+standard user under AppLocker / WDAC, and networks that require an explicit
+proxy. The code handles the known failure modes there (see
+[SECURITY.md](SECURITY.md)), but they have not been tested on real hardware.
 
 ## Example output
 
@@ -141,7 +193,7 @@ Update check that failed. The first sections look like this:
 ```text
 Endpoint Triage Report
 ======================
-Generated 2026-10-05 14:03:22 UTC by endpoint-triage 1.0.0
+Generated 2026-10-05 14:03:22 UTC by endpoint-triage 1.1.0
 Read-only scan: no system settings were changed.
 
 Summary
@@ -149,9 +201,10 @@ Summary
   Hostname          : HD-LAPTOP-042.corp.local
   Operating system  : Microsoft Windows 11 Pro
   Overall status    : CRITICAL
-  Findings          : 1 critical, 1 warning, 2 info
+  Findings          : 1 critical, 1 warning, 1 info
   Checks            : 9 ok, 2 failed, 0 unavailable, 0 skipped
   Scan duration     : 7.4 s
+  Test targets      : ping 1.1.1.1, resolve example.com
 
 Findings
 --------
@@ -178,15 +231,20 @@ Connectivity Tests
   [OK]          Ping public IP address (1.1.1.1): reply, avg 15.0 ms
   [FAILED]      Resolve public hostname (example.com): DNS lookup for example.com timed out after 5s
 
+Operating System Updates
+------------------------
+  Pending OS updates: not completed (failed), see Errors / Unavailable Checks
+
 Errors / Unavailable Checks
 ---------------------------
-  [FAILED] connectivity.dns_resolution: DNS lookup for example.com timed out after 5s
-  [FAILED] updates.os: powershell exited with code 1: Exception from HRESULT: 0x8024402C
+  [FAILED] Pending OS updates (updates.os): powershell exited with code 1: Exception from HRESULT: 0x8024402C (hint: 0x8024402C: the update server name could not be resolved; check proxy settings and the WSUS server URL)
 ```
 
 The report sections are: **Summary, Findings, System Information, Resource
 Usage, Network Configuration, Connectivity Tests, Operating System Updates,
-Errors / Unavailable Checks**.
+Errors / Unavailable Checks**. A check that could not run is described once,
+in *Errors / Unavailable Checks*; its own section points there. A failed ping
+or DNS lookup is a test *result*, so it stays under *Connectivity Tests*.
 
 ### JSON structure
 
@@ -194,8 +252,8 @@ The JSON report contains the same data in a versioned, documented shape:
 
 ```json
 {
-  "schema_version": "1.0",
-  "tool": { "name": "endpoint-triage", "version": "1.0.0" },
+  "schema_version": "1.1",
+  "tool": { "name": "endpoint-triage", "version": "1.1.0" },
   "generated_at": "2026-10-05T14:03:22+00:00",
   "duration_seconds": 7.4,
   "summary": {
@@ -203,11 +261,12 @@ The JSON report contains the same data in a versioned, documented shape:
     "os": "Microsoft Windows 11 Pro",
     "os_family": "Windows",
     "overall_status": "CRITICAL",
-    "finding_counts": { "CRITICAL": 1, "WARNING": 1, "INFO": 2 },
+    "finding_counts": { "CRITICAL": 1, "WARNING": 1, "INFO": 1 },
     "check_counts": { "ok": 9, "failed": 2, "unavailable": 0, "skipped": 0 }
   },
+  "scan_options": { "ping_target": "1.1.1.1", "dns_name": "example.com", "skip_updates": false },
   "findings": [
-    { "severity": "CRITICAL", "title": "...", "explanation": "...", "evidence": ["..."] }
+    { "id": "disk.critical_low_space", "severity": "CRITICAL", "title": "...", "explanation": "...", "evidence": ["..."] }
   ],
   "sections": {
     "system":       [ { "id": "system.os", "title": "...", "status": "ok", "data": { }, "error": null } ],
@@ -219,17 +278,24 @@ The JSON report contains the same data in a versioned, documented shape:
 }
 ```
 
-Every check has the same five fields (`id`, `title`, `status`, `data`,
-`error`). `status` is always one of `ok`, `failed`, `unavailable`, `skipped`.
-Sizes are in bytes and times are ISO 8601 UTC, so other tools never have to
-parse human-readable strings like "16.0 GB". `schema_version` lets consumers
-detect breaking changes. With `--debug`, each check also has a `debug` field.
+- `overall_status` is one of `OK`, `WARNING`, `CRITICAL`, `UNKNOWN` and
+  always matches the exit code.
+- Every finding has a stable `id` (documented in
+  [docs/findings.md](docs/findings.md)). Alert on the ID, not the title.
+- Every check has the same five fields (`id`, `title`, `status`, `data`,
+  `error`). `status` is always one of `ok`, `failed`, `unavailable`, `skipped`.
+- Sizes are in bytes and times are ISO 8601 UTC, so other tools never parse
+  strings like "16.0 GB". With `--debug`, each check also has a `debug` field.
+- `schema_version` follows "minor = additive, major = breaking". The sample
+  JSON is a golden file in the tests, so format changes cannot slip in
+  unnoticed.
 
 ## Findings and thresholds
 
 Findings are **troubleshooting signals, not diagnoses**. They point the
 technician at likely problems and show the evidence; they never claim to
-prove a root cause.
+prove a root cause. [docs/findings.md](docs/findings.md) lists every finding
+ID with its meaning and a tier-1 first step.
 
 All thresholds are constants at the top of
 [`endpoint_triage/findings.py`](endpoint_triage/findings.py).
@@ -245,14 +311,7 @@ All thresholds are constants at the top of
 | Several interfaces disconnected | INFO | ≥ **2** relevant interfaces down |
 | No DNS servers configured | WARNING | Empty DNS server list |
 | No default gateway | WARNING | No default route |
-| Gateway and public IP both unreachable | WARNING | Likely local network problem |
-| Gateway OK, public IP unreachable | WARNING | Likely problem beyond the local network |
-| Gateway ignores ping, internet works | INFO | Many routers drop ping, so this is usually harmless |
-| Both pings fail, DNS works | INFO | Ping is probably filtered (common on corporate/cloud networks) |
-| Public IP reachable, DNS fails | WARNING | Likely DNS configuration or server problem |
-| DNS fails while internet is down | INFO | Expected consequence; retest later |
 | Pending OS updates | INFO | ≥ 1 pending update |
-| A check could not run | INFO | Any check that is `failed` or `unavailable` |
 
 Why the 5 GB rule only applies to volumes of 20 GB or more: small partitions
 such as a 512 MB EFI partition always have less than 5 GB free, which is
@@ -260,37 +319,47 @@ normal.
 
 ### How the connectivity tests separate the failure domains
 
-| Gateway ping | Public IP ping | DNS lookup | Most likely problem area |
-|---|---|---|---|
-| ✅ | ✅ | ✅ | No connectivity problem detected |
-| ❌ | ❌ | ❌ | **Local network** (cable, Wi-Fi, VLAN, router) |
-| ✅ | ❌ | ❌ | **Internet / upstream** (ISP, firewall) |
-| ✅ | ✅ | ❌ | **DNS** (wrong or unreachable DNS server) |
-| ❌ | ✅ | ✅ | Gateway ignores ping; internet works (INFO only) |
-| ❌ | ❌ | ✅ | Ping is probably blocked; DNS answers prove traffic flows (INFO only) |
+| Gateway ping | Ping target | DNS lookup | Most likely problem area | Severity |
+|---|---|---|---|---|
+| ✅ | ✅ | ✅ | No connectivity problem detected | none |
+| ❌ | ❌ | ❌ | **Local network** (cable, Wi-Fi, VLAN, router) | WARNING |
+| ✅ | ❌ | ❌ | **Internet / upstream** (ISP, firewall, required proxy) | WARNING |
+| ✅ | ✅ | ❌ | **DNS** (wrong or unreachable DNS server) | WARNING |
+| ✅ | ❌ | ✅ | Outbound ping blocked; traffic flows (normal on corporate networks) | INFO |
+| ❌ | ✅ | ✅ | Gateway ignores ping; internet works | INFO |
+| ❌ | ❌ | ✅ | Ping blocked everywhere; DNS answers prove traffic flows | INFO |
+
+A successful DNS lookup is the deciding evidence: an answer from a DNS server
+means packets are leaving the machine, so failed pings alone are not treated
+as an outage.
 
 ## Exit codes
 
 The exit codes follow the widely used Nagios/monitoring convention, so a
 script or RMM tool can act on the result without parsing the report.
 
-| Code | Meaning |
-|---|---|
-| `0` | Scan completed. No WARNING or CRITICAL findings (INFO findings are allowed) |
-| `1` | Scan completed. At least one **WARNING** finding |
-| `2` | Scan completed. At least one **CRITICAL** finding |
-| `3` | The tool itself failed (e.g. the report could not be written) |
-| `64` | Invalid command-line arguments (`EX_USAGE`) |
-| `130` | Interrupted with Ctrl+C |
+| Code | Status | Meaning |
+|---|---|---|
+| `0` | OK | Scan completed. No WARNING or CRITICAL findings (INFO findings are allowed) |
+| `1` | WARNING | At least one **WARNING** finding |
+| `2` | CRITICAL | At least one **CRITICAL** finding |
+| `3` | UNKNOWN | **Core diagnostics could not be collected** (OS, memory, disks or network interfaces), or the tool itself failed |
+| `64` | — | Invalid command-line arguments (`EX_USAGE`) |
+| `130` | — | Interrupted with Ctrl+C |
 
-A failed *check* (for example, update status unavailable) does **not** make
-the tool exit with 3. It is reported in the report and the scan still
-completes. argparse normally exits with 2 for bad arguments, which would
-collide with CRITICAL, so the CLI overrides it to use 64.
+Precedence is **CRITICAL > UNKNOWN > WARNING > OK**. A scan that could not
+read the disks cannot honestly report "OK", so it reports UNKNOWN; a CRITICAL
+finding is still reported as CRITICAL because it is already actionable.
+Non-core checks that cannot run (for example the update check) are listed in
+the report but do not change the exit code. argparse normally exits with 2
+for bad arguments, which would collide with CRITICAL, so the CLI uses 64.
 
 ```bash
-python -m endpoint_triage; echo "exit code: $?"          # macOS / Linux
-python -m endpoint_triage; echo "exit code: $LASTEXITCODE" # PowerShell
+python endpoint-triage.pyz; echo "exit code: $?"            # macOS / Linux
+```
+
+```powershell
+py endpoint-triage.pyz; echo "exit code: $LASTEXITCODE"    # PowerShell
 ```
 
 ## Architecture
@@ -298,22 +367,26 @@ python -m endpoint_triage; echo "exit code: $LASTEXITCODE" # PowerShell
 ```text
 endpoint-triage/
 ├── endpoint_triage/
-│   ├── __main__.py          # enables `python -m endpoint_triage`
-│   ├── cli.py               # argument parsing, exit codes, console summary
+│   ├── __main__.py          # entry point for `python -m` and the .pyz; Python version check
+│   ├── cli.py               # argument parsing and validation, exit codes, console summary
 │   ├── scanner.py           # runs the collectors in order, builds the Report
-│   ├── runner.py            # the ONLY place commands are executed (allow-list, timeouts)
-│   ├── models.py            # CheckResult, Finding, Report, Status, Severity
+│   ├── runner.py            # the ONLY place commands run (allow-list, trusted paths, timeouts)
+│   ├── models.py            # CheckResult, Finding, Report, overall status
 │   ├── collectors/
 │   │   ├── system.py        # hostname, OS, version, architecture, uptime
 │   │   ├── resources.py     # memory, disk volumes
 │   │   ├── network.py       # interfaces, default gateway, DNS servers
-│   │   ├── connectivity.py  # gateway ping, public IP ping, DNS resolution
+│   │   ├── connectivity.py  # gateway ping, ping target, DNS resolution
 │   │   └── updates.py       # pending OS updates
 │   ├── findings.py          # thresholds + rules: CheckResults -> Findings
 │   └── reporters.py         # Report -> .txt and .json
 ├── tests/                   # unittest suite with fixtures of real command output
-├── sample/                  # example reports
-└── .github/workflows/       # CI on macOS, Windows, Linux
+├── tools/                   # build_zipapp.py, regenerate_samples.py
+├── docs/                    # findings.md (finding IDs), INTERVIEW_GUIDE.md
+├── sample/                  # example reports (also golden files for the tests)
+├── SECURITY.md              # commands, network traffic, data, threat model
+├── CHANGELOG.md
+└── .github/workflows/       # tests.yml (CI), release.yml (tagged releases)
 ```
 
 Data flows in one direction:
@@ -334,6 +407,9 @@ Key design decisions:
 - **One shared result model.** Every check returns a `CheckResult` with a
   `status` of `ok`, `failed`, `unavailable` or `skipped`. The findings
   engine, both reporters and the JSON schema all depend on this one shape.
+- **One place decides the result.** `Report.overall_status()` computes
+  OK / WARNING / CRITICAL / UNKNOWN; the text report, the JSON and the exit
+  code all use it, so they can never disagree.
 - **Parsers are pure functions.** `parse_ifconfig(text)`,
   `parse_df(text, os_name)` and the others take a string and return data,
   so they can be tested directly with saved command output.
@@ -357,7 +433,7 @@ Key design decisions:
 | Network | Interfaces: status, IPv4/IPv6 (CIDR), MAC | Is the adapter up? Did DHCP work? Is it on the right subnet? MAC addresses are needed for DHCP reservations and NAC |
 | Network | Default gateway | Without one, traffic cannot leave the local subnet |
 | Network | DNS servers | Wrong DNS servers are a classic cause of "internet works but websites don't" |
-| Connectivity | Ping gateway, ping `1.1.1.1`, resolve `example.com` | Narrows a connectivity problem to local network, internet or DNS |
+| Connectivity | Ping gateway, ping target, resolve hostname | Narrows a connectivity problem to local network, internet or DNS |
 | Updates | Pending OS updates, restart required | Missing patches are a common cause of bugs and a security risk |
 
 **Gateway / default route:** the router that receives any traffic not
@@ -369,7 +445,9 @@ reach the internet *by IP address*. Resolving `example.com` tests whether
 *names* can be turned into addresses. If the IP test passes and the DNS test
 fails, the network path works and the problem is name resolution. This is
 the case where users say the "internet is down" even though the network is
-fine.
+fine. On corporate networks, point the tests at internal targets with
+`--ping-target` and `--dns-name` to answer "can this laptop reach *our*
+services?".
 
 The DNS check uses the operating system's resolver (`socket.getaddrinfo`),
 so it sees the same result as browsers and apps, including VPN DNS, the hosts
@@ -399,6 +477,9 @@ Notable differences the code handles:
   display language.
 - **Locale.** On macOS/Linux commands run with `LC_ALL=C` so output is always
   English with `.` as the decimal separator.
+- **Trusted binary locations.** Each command is run from a fixed system path
+  (`/usr/bin`, `/sbin`, `%SystemRoot%\System32`, ...), which differ per OS
+  and distribution; PATH is never searched.
 - **Ping flags differ.** `-c` vs `-n` for count; `-W` is milliseconds on macOS
   but seconds on Linux.
 - **Windows ping exit codes.** `ping` exits `0` even when a router replies
@@ -419,30 +500,35 @@ Notable differences the code handles:
 
 ## Error handling
 
-The guiding rule: **one failed check never stops the scan, and no failure is
-silent.**
+The guiding rule: **one failed check never stops the scan, no failure is
+silent, and an incomplete scan never claims to be healthy.**
 
 1. **The runner never raises for ordinary failures.** A missing command
-   (`FileNotFoundError`), a timeout (`TimeoutExpired`), a permission error,
-   or a non-zero exit code all come back as a `CommandResult` that describes
-   what happened.
+   (or one missing from its trusted location), a timeout, a permission
+   error, or a non-zero exit code all come back as a `CommandResult` that
+   describes what happened.
 2. **Collectors translate failures into statuses.**
-   - Command not found / unsupported OS → `unavailable`
+   - Command not found / unsupported OS / blocked by policy → `unavailable`
    - Non-zero exit, timeout, or output that cannot be parsed → `failed`
-   - Not applicable (e.g. no gateway to ping) → `skipped`
+   - Not applicable or turned off (no gateway to ping, `--skip-updates`) → `skipped`
 3. **Partial data is still reported.** If `vm_stat` fails, total memory is
    still reported. If `df` exits 1 because of a stale network mount, the
    other volumes are still shown with a note.
-4. **The scanner has a last line of defense.** Each collector runs inside a
+4. **Errors are explained.** Common Windows Update error codes get a
+   one-line hint (proxy, WSUS, timeout), and a Constrained Language Mode
+   block is reported as "blocked by policy".
+5. **The scanner has a last line of defense.** Each collector runs inside a
    guard; if a bug raises an unexpected exception, it becomes a `failed`
    check (with the traceback saved for `--debug`) and the other sections
    still run.
-5. **Users see messages, not stack traces.** Normal mode shows one-line
+6. **Missing core data means UNKNOWN.** If OS, memory, disk or interface
+   data is missing, the overall status is UNKNOWN (exit 3) unless something
+   is already CRITICAL.
+7. **Users see messages, not stack traces.** Normal mode shows one-line
    errors. `--debug` logs every command to stderr and adds stderr output and
    tracebacks to the reports.
-6. **Every non-OK check is listed** in *Errors / Unavailable Checks*, and the
-   findings engine adds an INFO finding for each diagnostic it could not
-   determine.
+8. **Reports are always written somewhere.** If the current folder is not
+   writable, reports go to the system temp folder and the path is printed.
 
 ## Privacy and read-only design
 
@@ -452,41 +538,48 @@ silent.**
 - ✅ Only writes its two report files, and only inside the output directory
 - ❌ Never changes settings, network configuration, files or services
 - ❌ Never installs, updates or removes software. Update checks only *search*
-- ❌ Never sends collected data anywhere. There is no upload, telemetry or
+- ❌ Never sends **collected data** anywhere. There is no upload, telemetry or
   email feature
 - ❌ Never needs or requests administrator/root rights
 
 **How this is enforced, not just promised:**
 
-- `runner.py` refuses to run any executable that is not on a short
-  **allow-list** (`sw_vers`, `sysctl`, `vm_stat`, `ifconfig`, `route`,
-  `scutil`, `softwareupdate`, `df`, `ping`, `ip`, `apt`, `dnf`,
-  `powershell`). Every listed command is used only in a read-only mode, and
-  a test verifies that a full scan only runs allow-listed commands.
+- `runner.py` only runs commands on a short **allow-list**, and only from
+  fixed system paths, so a fake `ping.exe` planted in a user-writable folder
+  cannot be run in its place. A test verifies that a full scan only runs
+  allow-listed commands.
 - Commands run **without a shell** (`subprocess.run([...])`, never
-  `shell=True`), so no input can be interpreted as extra shell commands.
+  `shell=True`), and user-supplied targets are strictly validated, so no input
+  can become an extra command or option.
 - `dnf` runs with `-C` (cache only) so it never writes to the package cache;
   `apt list` only reads the local package index.
 
-**Network traffic the tool generates:** two ICMP pings (to the gateway and
-to `1.1.1.1`), one DNS lookup for `example.com`, and the OS's own update
-check (`softwareupdate` / Windows Update / package metadata). None of these
-carry any collected information.
+**Network traffic the tool generates.** The tool *does* make network
+requests as part of its tests, but none of them carry collected information:
+two ICMP pings (the default gateway and the ping target, default `1.1.1.1`),
+one DNS lookup (default `example.com`), and the operating system's own update
+search (Apple, Microsoft or your WSUS server, or nothing on Linux, which uses
+the local cache). `--skip-updates` removes the update search; `--ping-target`
+and `--dns-name` can keep the remaining tests inside your network. The full
+list is in [SECURITY.md](SECURITY.md).
 
 **What it deliberately does not collect:** passwords, credentials, tokens,
 Wi-Fi keys, browser history, file contents, usernames, installed software
 lists, running processes, and serial numbers.
 
-**Personally identifiable / sensitive data that *is* collected,** because
-it is needed for triage: the hostname, IP addresses and MAC addresses. Treat
-reports like any other ticket attachment.
+**Personal and sensitive data the reports *do* contain,** because it is
+needed for triage: the hostname (also in the report file name), internal IP
+addresses, MAC addresses of the listed network interfaces, DNS server
+addresses, and the names of pending updates. Treat reports like any other
+ticket attachment and follow your organization's data-handling rules before
+sharing them outside the company.
 
 ## Testing
 
 The test suite uses only `unittest` from the standard library:
 
 ```bash
-python -m unittest discover -v
+python -W error -m unittest discover -v
 ```
 
 Run a single test module:
@@ -495,19 +588,27 @@ Run a single test module:
 python -m unittest tests.test_network -v
 ```
 
-What the tests cover (134 tests, under a second):
+What the tests cover (154 tests, under a second):
 
 - **Parsing for each OS** using fixtures of real command output in
   [`tests/fixtures/`](tests/fixtures) (macOS `ifconfig`/`df`/`vm_stat`/`scutil`,
   Linux `ip -j`/`df`/`meminfo`, Windows PowerShell JSON)
 - **Command success, failures (non-zero exit), missing commands, timeouts**
+- **Trusted-path resolution**: commands are never looked up through PATH
 - **Malformed / unexpected output** (garbage text, broken JSON, old `ip`
-  without JSON support)
+  without JSON support, Windows Update error codes, Constrained Language Mode)
 - **Findings and every threshold boundary**, including the full
   connectivity classification table
-- **Report generation**: section order, content, debug-only details, file names
-- **JSON structure**: top-level keys, check and finding shapes, status values
-- **CLI**: exit codes, `--help`, `--version`, bad arguments, unwritable output
+- **Overall status and exit codes**, including a scan where nothing could be
+  collected (must be UNKNOWN, never OK)
+- **Report generation**: section order, content, de-duplication, debug-only
+  details, file names
+- **JSON contract**: top-level keys, check and finding shapes, and golden
+  files that pin the exact published sample output
+- **Docs stay in sync**: every finding ID in the code must be documented in
+  `docs/findings.md`
+- **CLI**: exit codes, flag validation (including option injection), `--help`,
+  `--version`, unwritable output and the temp-folder fallback
 - **End-to-end scans** with all commands faked, including a collector crash
 
 How tests stay deterministic:
@@ -515,16 +616,19 @@ How tests stay deterministic:
 - `tests/helpers.py` provides `FakeRunner`, which returns canned
   `CommandResult`s and records every command that was "run".
 - DNS lookups use an injected fake resolver.
-- `subprocess.run` is patched with `unittest.mock` to test the runner's own
-  error handling.
+- `subprocess.run` and the trusted-path lookup are patched with
+  `unittest.mock` to test the runner's own behavior.
 
 No test touches the real network or depends on the developer's OS.
+
+After an intentional change to the report format, regenerate the golden
+samples with `python tools/regenerate_samples.py` and review the diff.
 
 The DNS check was built **test-first**: the specification tests in
 [`tests/test_dns.py`](tests/test_dns.py) were committed (failing) before
 the implementation. The git history shows that red → green sequence.
 
-## Continuous integration
+## Continuous integration and releases
 
 [`.github/workflows/tests.yml`](.github/workflows/tests.yml) runs on every
 push and pull request:
@@ -532,28 +636,40 @@ push and pull request:
 - A **matrix** of `ubuntu-latest`, `macos-latest`, `windows-latest` ×
   Python **3.11** and **3.13** (6 jobs). `fail-fast: false` keeps one OS
   failure from hiding results on the others.
-- **No install step** beyond setting up Python, because there are no
-  dependencies.
-- Runs `python -m unittest discover -v`; any failing test fails the job.
-- Runs a **real smoke scan** on each OS (Python 3.13 jobs). Exit codes 0–2
-  are accepted, since a CI runner may legitimately have findings; 3 or
-  higher fails the build. The real reports are uploaded as build artifacts,
-  which is a convenient way to see actual Windows and Linux output.
+- **No dependency install step**, because there are no dependencies.
+- Runs the tests with `-W error`, so a deprecation warning fails the build.
+- Installs the package with `pip install .` and runs the `endpoint-triage`
+  command, proving the packaging works.
+- Builds the `.pyz` and runs a **real smoke scan** with it on each OS
+  (Python 3.13 jobs). Exit codes 0–2 are accepted, since a CI runner may
+  legitimately have findings; UNKNOWN (3) fails the build. The real reports
+  are uploaded as build artifacts.
+
+[`.github/workflows/release.yml`](.github/workflows/release.yml) runs when a
+version tag such as `v1.1.0` is pushed. It runs the tests, checks that the tag
+matches the package version, builds and verifies `endpoint-triage.pyz` and
+its SHA-256 checksum, and publishes a GitHub Release with the notes from
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Known limitations
 
+- **Requires Python 3.11+ on the endpoint.** The single file removes the
+  install step, not the interpreter (see [Installation](#installation)).
 - **Pending updates on Linux** reflect the local package index / cache. If
   `apt update` or `dnf makecache` has not run recently, the list may be
   stale (the report says so). Only `apt` and `dnf` are supported; zypper and
   pacman report *unavailable*.
 - **Update checks can be slow.** `softwareupdate -l` and Windows Update
-  searches contact the vendor and can take up to a minute or more (timeout:
-  180 s). They may fail offline or behind restrictive proxies, which is
-  reported as *undetermined*.
+  searches contact the vendor and can take a minute or more (timeout: 180 s).
+  Use `--skip-updates` when time matters.
+- **Proxies are not detected.** On networks that require an explicit proxy,
+  ping and DNS can succeed while web traffic still fails.
 - **Ping may be blocked.** Firewalls often drop ICMP. A failed ping is a
   signal, not proof, which is why findings combine ping with the DNS result.
-- **The connectivity tests use fixed targets** (`1.1.1.1`, `example.com`).
-  Networks that block these specific destinations will show failures.
+- **`--ping-target` accepts IPv4 only.** macOS needs a separate `ping6`
+  command for IPv6, which would add complexity for little triage value.
+- **Endpoint security products** may flag or block Python starting
+  PowerShell with an inline script; see [SECURITY.md](SECURITY.md).
 - **macOS available memory** is an approximation (free + inactive +
   speculative pages); Activity Monitor uses a more complex formula.
 - **Mounted disk images** (DMG/ISO) on macOS/Linux may appear as nearly full
@@ -562,8 +678,6 @@ push and pull request:
   works in every language because it relies on `TTL=`.
 - **Old Linux distributions** whose `ip` lacks JSON output (iproute2 < 4.14)
   report network interfaces and gateway as *failed*.
-- **Locked-down Windows** environments that block PowerShell will report the
-  Windows checks as failed or unavailable.
 - The tool runs once and reports a snapshot; intermittent problems may not
   appear in a single run.
 

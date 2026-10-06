@@ -19,8 +19,11 @@ convinces interviewers.
 > disk, network config, runs gateway/internet/DNS connectivity tests, and
 > checks for pending updates. A findings engine flags things like a nearly
 > full disk or 'IP works but DNS fails'. It's strictly read-only: commands
-> go through an allow-list and never use a shell. It's tested with mocked
-> command output for macOS, Windows and Linux, and CI runs on all three."
+> go through an allow-list, run from fixed system paths and never use a
+> shell. It ships as a single file with a checksum, it's tested with mocked
+> command output for macOS, Windows and Linux, and CI runs real scans on all
+> three. After an audit I fixed exit-code bugs where a broken scan could
+> report 'OK', and documented a full threat model."
 
 ---
 
@@ -229,9 +232,10 @@ changes; machine-friendly units (bytes, ISO 8601) in JSON vs human units
 
 **Concepts**
 - **`argparse`**: `--help` is generated automatically.
-- **Exit codes as an API:** 0/1/2/3 follow the Nagios convention so an
-  RMM tool or script can branch on the result. argparse's default "2" for
-  usage errors is overridden to 64 so it can't be mistaken for CRITICAL.
+- **Exit codes as an API:** 0/1/2/3 (OK/WARNING/CRITICAL/UNKNOWN) follow
+  the Nagios convention so an RMM tool or script can branch on the result.
+  argparse's default "2" for usage errors is overridden to 64 so it can't be
+  mistaken for CRITICAL.
 - **stderr for progress, stdout for results** keeps output pipeable.
 - **Fault isolation:** `_guarded()` turns an unexpected exception in one
   collector into a failed check; the rest of the scan continues.
@@ -266,6 +270,72 @@ changes; machine-friendly units (bytes, ISO 8601) in JSON vs human units
 
 ---
 
+## M12: Hardening after a design audit (v1.1.0)
+
+An audit asked "what would stop an enterprise IT team from trusting this?"
+and found real bugs, not just missing features. This is the best interview
+story in the project: *how you found and fixed problems in your own work.*
+
+**What changed and why**
+- **UNKNOWN exit code** (`Report.overall_status()` in `models.py`). Before,
+  a scan where every command failed turned each failure into an INFO
+  finding, and INFO didn't affect the exit code, so the tool said "OK" and
+  exited 0. An RMM would have marked a broken machine healthy. Now, if core
+  checks (OS, memory, disks, interfaces) are missing, the result is UNKNOWN
+  (exit 3). Precedence: CRITICAL > UNKNOWN > WARNING > OK.
+- **False WARNING on corporate laptops** (`findings.py`). Gateway OK, ping to
+  1.1.1.1 blocked, DNS works: that's a *healthy* laptop behind a firewall that
+  blocks outbound ICMP. It's now INFO. The deciding evidence is DNS: a DNS
+  answer proves packets are leaving the machine.
+- **PATH hijacking** (`runner.py`, `resolve_executable`). The allow-list
+  checked names like `ping`, but the OS decided *which* `ping` by searching
+  PATH (and, on Windows, the folder the program was started from). A fake
+  `ping.exe` in Downloads could have run. Commands now run only from fixed
+  system paths.
+- **Configurable targets with validation** (`cli.py`). `--ping-target` must be
+  an IPv4 address and `--dns-name` an RFC 1123 hostname. That also prevents
+  *argument injection*: `--ping-target=-f` would otherwise reach `ping` as an
+  option even without a shell.
+- **Stable finding IDs** (`models.Finding.id`, `docs/findings.md`). Titles are
+  for humans and may change; IDs are the contract for scripts and KB articles.
+  A test fails if the docs and code disagree.
+- **One place per problem in the report.** A check that couldn't run used to
+  appear three times. Now it appears once, and "couldn't check" is no longer
+  counted as a finding.
+- **Distribution** (`tools/build_zipapp.py`, `release.yml`). Python's
+  `zipapp` packs the tool into one `.pyz` file with a SHA-256 checksum;
+  pushing a version tag builds it and publishes a GitHub Release.
+- **Golden-file tests.** The sample reports are compared byte-for-byte with
+  freshly rendered output, so a format change can't break consumers silently.
+- **SECURITY.md** lists every command and argument, every network destination,
+  the personal data in reports, and a threat model.
+
+**What was deliberately rejected** (and why that's a good answer)
+- `--redact`: hashing a hostname with a short unsalted hash is reversible by
+  guessing names, so it would give false confidence. Honest disclosure instead.
+- `--config` file, report diffing, JSON on stdout, a JSON Schema file: useful,
+  but each adds surface area the project's "keep the CLI small" goal argues
+  against. Saying no to features is part of design.
+
+**Concepts**
+- **Nagios plugin conventions** and why UNKNOWN exists.
+- **Executable search order** (PATH, and Windows' application-directory-first
+  search) and why security-sensitive tools use absolute paths.
+- **Argument injection vs command injection**: `shell=False` stops the second,
+  not the first. Input validation stops both.
+- **Constrained Language Mode** (AppLocker/WDAC) and why COM objects fail there.
+- **Semantic versioning** for the tool and for the JSON schema.
+
+**Questions**
+1. Your tool exited 0 on a machine where nothing could be read. Why was that a bug, and how did you fix it?
+2. You run commands without a shell. Why isn't that enough to be safe?
+3. Why does a successful DNS lookup change how you interpret failed pings?
+4. Why didn't you add a redaction option?
+5. How does someone deploy this to 500 Windows laptops? (Python via Intune/winget, then push one `.pyz`, verify the hash, read the exit code.)
+6. What's still not validated? (A domain-joined, AppLocker-restricted Windows laptop as a standard user, and explicit-proxy networks; that honesty is in the README.)
+
+---
+
 ## General questions to prepare for
 
 - "Walk me through what happens when I run `python -m endpoint_triage`."
@@ -276,9 +346,9 @@ changes; machine-friendly units (bytes, ISO 8601) in JSON vs human units
 - "How did you make sure the tool is safe to run on a user's machine?"
   (allow-list, no shell, no admin, read-only commands, no network upload,
   a test that asserts only allow-listed commands run)
-- "What would you add next?" (Good, scoped answers: proxy detection, Wi-Fi
-  signal strength, a `--no-updates` option for speed, a configurable
-  thresholds file. Avoid "a dashboard"; explain why it's out of scope.)
+- "What would you add next?" (Good, scoped answers: read-only proxy
+  detection, Wi-Fi signal strength, validating on a locked-down
+  domain-joined laptop. Avoid "a dashboard"; explain why it's out of scope.)
 - "What would break if you deployed this to 5,000 machines?" (Update
   checks hitting vendor servers at once, PowerShell execution policies or
   AppLocker, fixed connectivity targets blocked by corporate firewalls,

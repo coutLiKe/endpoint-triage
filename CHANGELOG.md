@@ -1,0 +1,56 @@
+# Changelog
+
+All notable changes are listed here. Versions follow
+[semantic versioning](https://semver.org/); the JSON report has its own
+`schema_version` (minor = additive, major = breaking).
+
+## [1.1.0] - 2026-10-06
+
+Hardening after a full design audit, focused on correctness and on what an
+enterprise IT team needs before trusting the tool.
+
+### Fixed
+- A scan that could not collect core diagnostics (OS, memory, disks or
+  network interfaces) reported **OK** and exited 0. It now reports
+  **UNKNOWN** and exits 3, following the Nagios convention.
+- A healthy laptop behind a corporate firewall that blocks outbound ping was
+  reported as WARNING. A failed ping with working DNS is now INFO.
+- Allow-listed commands were found through PATH (and, on Windows, the
+  application folder), so a planted binary could run instead of the real one.
+  Commands now run only from fixed system paths.
+- PowerShell queries no longer fail under Constrained Language Mode because
+  of the output-encoding line.
+
+### Added
+- `--ping-target` and `--dns-name` to test internal targets, with strict
+  validation that also blocks option injection.
+- `--skip-updates` to skip the slow update check and its traffic to update
+  servers.
+- A stable `id` for every finding, and [docs/findings.md](docs/findings.md)
+  with the meaning and a tier-1 first step for each ID.
+- Plain-English hints for common Windows Update error codes, and
+  "blocked by policy" detection for Constrained Language Mode.
+- Single-file `endpoint-triage.pyz` build with a SHA-256 checksum, and
+  tag-triggered GitHub Releases.
+- Reports fall back to the system temp folder when the current folder is not
+  writable.
+- The console summary ends with the exit code and its meaning.
+- A clear error on Python versions older than 3.11.
+- [SECURITY.md](SECURITY.md): every command and argument, network
+  destinations, data inventory, threat model and worst-case runtime.
+- Golden-file tests that pin the published sample reports; CI runs tests
+  with `-W error`, checks `pip install`, and smoke-tests the `.pyz` build.
+
+### Changed
+- JSON `schema_version` is now `1.1`: adds `scan_options` and finding `id`;
+  `overall_status` can be `UNKNOWN`.
+- A check that could not run is listed once, under Errors / Unavailable
+  Checks, instead of also appearing as an INFO finding.
+- The README states exactly which network requests the tool makes and which
+  personal data the reports contain.
+
+## [1.0.0] - 2026-10-05
+
+First release: cross-platform, read-only endpoint triage with system,
+resource, network, connectivity and update checks, a findings engine, text
+and JSON reports, Nagios-style exit codes, and CI on macOS, Windows and Linux.

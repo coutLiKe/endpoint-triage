@@ -19,8 +19,9 @@ python -m endpoint_triage
 | macOS sources | `sw_vers`, `sysctl`, `vm_stat`, `df`, `ifconfig`, `route`, `scutil`, `softwareupdate` | Built into every Mac. |
 | Disk thresholds | WARNING ≥ 85 %, CRITICAL ≥ 95 % or < 5 GB free (volumes ≥ 20 GB) | Common help desk defaults. |
 | Connectivity targets | Ping `1.1.1.1`, resolve `example.com` | Neutral, stable, well known. |
-| Exit codes | Nagios-style: 0 OK, 1 WARNING, 2 CRITICAL, 3 tool error, 64 usage error | Widely understood monitoring convention. |
-| Safety mechanism | Allow-list of executables in the command runner | Read-only behavior is enforced in code, not just promised. |
+| Exit codes | Nagios-style: 0 OK, 1 WARNING, 2 CRITICAL, 3 UNKNOWN (incomplete scan or tool error), 64 usage error | Widely understood monitoring convention. |
+| Safety mechanism | Allow-list of executables, run from fixed system paths, in the command runner | Read-only behavior is enforced in code, not just promised; PATH hijacking is not possible. |
+| Distribution | Single-file `zipapp` (`.pyz`) with SHA-256, published by a tag-triggered release | One file to copy or push with an RMM; no install step. |
 
 ## Milestones
 
@@ -41,6 +42,12 @@ python -m endpoint_triage
 - [x] **M10 — CLI + scanner:** argument parsing, exit codes, debug mode (+ tests).
 - [x] **M11 — CI:** GitHub Actions matrix on macOS, Windows, Linux.
 - [x] **M12 — Documentation:** README, sample report.
+- [x] **M13 — Hardening after a design audit (v1.1.0):** UNKNOWN exit code
+  for incomplete scans, blocked-ping false WARNING, trusted executable
+  paths, validated `--ping-target` / `--dns-name`, `--skip-updates`, stable
+  finding IDs + `docs/findings.md`, report de-duplication, Windows Update
+  error hints, temp-folder fallback, single-file `.pyz` releases, golden-file
+  tests, SECURITY.md and CHANGELOG.md.
 
 ## Out of scope
 
