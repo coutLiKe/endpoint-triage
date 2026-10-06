@@ -58,6 +58,30 @@ class MainTests(unittest.TestCase):
         self.assertEqual(code, cli.EXIT_ERROR)
         self.assertIn("could not write report", err)
 
+    def test_falls_back_to_temp_dir_when_cwd_is_not_writable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            real_write = cli.write_reports
+            calls = []
+
+            def flaky_write(report, output_dir, debug=False):
+                calls.append(output_dir)
+                if output_dir == Path(cli.DEFAULT_OUTPUT_DIR):
+                    raise PermissionError("read-only folder")
+                return real_write(report, output_dir, debug)
+
+            with mock.patch("endpoint_triage.cli.write_reports", flaky_write), \
+                    mock.patch("endpoint_triage.cli.tempfile.gettempdir", return_value=tmp):
+                code, out, err = run_cli()
+            self.assertEqual(code, cli.EXIT_CRITICAL)
+            self.assertEqual(calls[-1], Path(tmp) / cli.DEFAULT_OUTPUT_DIR)
+            self.assertIn("using", err)
+            self.assertIn(tmp, out)
+
+    def test_exit_code_is_explained(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, out, _ = run_cli("-o", tmp)
+        self.assertIn("Exit code 2: CRITICAL (at least one CRITICAL finding)", out)
+
     def test_unexpected_error_hides_traceback_without_debug(self):
         code, _, err = run_cli("-o", "unused", scan_error=RuntimeError("kaboom"))
         self.assertEqual(code, cli.EXIT_ERROR)

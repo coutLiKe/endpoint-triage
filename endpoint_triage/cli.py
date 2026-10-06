@@ -7,6 +7,7 @@ import ipaddress
 import logging
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 from endpoint_triage import __version__
@@ -61,8 +62,9 @@ def build_parser() -> argparse.ArgumentParser:
         description="Collect read-only endpoint diagnostics and write a help desk report (.txt and .json).",
         epilog="Exit codes: 0 OK, 1 WARNING, 2 CRITICAL, 3 UNKNOWN (incomplete scan or tool error), 64 usage error.",
     )
-    parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT_DIR, metavar="DIR",
-                        help=f"directory to write reports into (default: ./{DEFAULT_OUTPUT_DIR})")
+    parser.add_argument("-o", "--output", metavar="DIR",
+                        help=f"directory to write reports into (default: ./{DEFAULT_OUTPUT_DIR}, "
+                             "or the system temp folder if the current folder is not writable)")
     parser.add_argument("--ping-target", type=ipv4_address, default=PUBLIC_IP_TARGET, metavar="IP",
                         help=f"IPv4 address for the internet ping test (default: {PUBLIC_IP_TARGET})")
     parser.add_argument("--dns-name", type=hostname, default=DNS_TEST_HOSTNAME, metavar="HOST",
@@ -76,6 +78,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 EXIT_CODES = {"OK": EXIT_OK, "WARNING": EXIT_WARNING, "CRITICAL": EXIT_CRITICAL, "UNKNOWN": EXIT_UNKNOWN}
+EXIT_MEANINGS = {
+    "OK": "no WARNING or CRITICAL findings",
+    "WARNING": "at least one WARNING finding",
+    "CRITICAL": "at least one CRITICAL finding",
+    "UNKNOWN": "core diagnostics could not be collected",
+}
 
 
 def exit_code_for(status: str) -> int:
@@ -92,12 +100,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report = run_scan(progress=lambda message: print(f"  - {message}", file=sys.stderr),
                           ping_target=args.ping_target, dns_name=args.dns_name, skip_updates=args.skip_updates)
-        text_path, json_path = write_reports(report, Path(args.output), debug=args.debug)
+        text_path, json_path = _write(report, args)
     except KeyboardInterrupt:
         print("\nInterrupted; no report was written.", file=sys.stderr)
         return EXIT_INTERRUPTED
     except OSError as exc:
-        print(f"error: could not write report to {args.output}: {exc}", file=sys.stderr)
+        print(f"error: could not write report: {exc}", file=sys.stderr)
         return EXIT_ERROR
     except Exception as exc:
         logging.getLogger(__name__).debug("Unexpected error", exc_info=True)
@@ -116,4 +124,23 @@ def main(argv: list[str] | None = None) -> int:
     print()
     print(f"Text report: {text_path}")
     print(f"JSON report: {json_path}")
-    return exit_code_for(report.overall_status())
+    status = report.overall_status()
+    print(f"Exit code {exit_code_for(status)}: {status} ({EXIT_MEANINGS[status]})")
+    return exit_code_for(status)
+
+
+def _write(report, args) -> tuple[Path, Path]:
+    """Write to --output, or ./triage-reports with a temp-folder fallback.
+
+    The fallback covers running from a folder the user cannot write to
+    (for example C:\\Windows\\System32 in an elevated prompt). An explicit
+    --output is never silently replaced.
+    """
+    if args.output:
+        return write_reports(report, Path(args.output), debug=args.debug)
+    try:
+        return write_reports(report, Path(DEFAULT_OUTPUT_DIR), debug=args.debug)
+    except OSError as exc:
+        fallback = Path(tempfile.gettempdir()) / DEFAULT_OUTPUT_DIR
+        print(f"note: cannot write to ./{DEFAULT_OUTPUT_DIR} ({exc}); using {fallback}", file=sys.stderr)
+        return write_reports(report, fallback, debug=args.debug)
