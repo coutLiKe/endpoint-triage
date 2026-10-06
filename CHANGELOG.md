@@ -4,6 +4,50 @@ All notable changes are listed here. Versions follow
 [semantic versioning](https://semver.org/); the JSON report has its own
 `schema_version` (minor = additive, major = breaking).
 
+## [1.3.0] - 2026-10-06
+
+Correct conclusions on managed networks, from a second design audit.
+
+### Added
+- **TCP reachability test** to the `--dns-name` host on port 443, and to the
+  configured proxy's host and port. Both only open and close a connection.
+  A completed connection is now the deciding evidence for connectivity.
+- **VPN tunnel detection** (macOS, Linux, Windows) and whether the default
+  route uses a tunnel; new `network.vpn_default_route` INFO finding.
+- **Run-context detection:** whether the scan ran as a standard user, root or
+  SYSTEM (never the user name), shown in the report, with a
+  `system.elevated_context` INFO finding for RMM/Intune runs.
+- New connectivity findings: `connectivity.https_blocked`,
+  `connectivity.direct_https_blocked_proxy`, `connectivity.proxy_unreachable`,
+  `connectivity.dns_failed_proxy_network`.
+- Text report: finding IDs with a link to docs/findings.md, local time next to
+  UTC, a "Run as" line, unused interfaces on one line, VPN tunnels labeled.
+- JSON schema 1.2 (additive): `generated_at_local`, `summary.run_as`,
+  `summary.exit_code`, `summary.incomplete_core_checks`, and per-interface
+  `tunnel` / gateway `via_tunnel`.
+- Release hardening: the release runs the full CI suite first, actions are
+  pinned to commit SHAs, the `.pyz` gets a signed build provenance
+  attestation, and the build is byte-for-byte reproducible.
+- Documented stability policy for exit codes, finding IDs and JSON fields.
+
+### Fixed
+- A healthy laptop on a proxy-only network with internal DNS was reported as
+  `connectivity.internet_unreachable` (WARNING); connectivity findings now
+  take the proxy into account.
+- Removed the incorrect claim that a working DNS lookup proves traffic is
+  leaving the local network (false with an internal DNS server).
+- macOS disk table: the sealed system volume is no longer listed and Total is
+  used + free, so the APFS row adds up.
+
+### Removed
+- `network.interfaces_disconnected`: it fired on every laptop because of
+  unused Thunderbolt, Bluetooth and spare ports. Disconnected interfaces are
+  still listed in the report.
+
+### Changed
+- README shortened; details moved to docs/reference.md and
+  docs/architecture.md.
+
 ## [1.2.1] - 2026-10-06
 
 Security fix from a second design audit.

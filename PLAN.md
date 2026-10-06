@@ -52,6 +52,12 @@ python -m endpoint_triage
   standard user and under Constrained Language Mode; fixed the CLM bug it found.
 - [x] **M15 — Proxy detection (v1.2.0):** environment, macOS and Windows
   (WinINET + WinHTTP) proxy settings, credential redaction, CI validation.
+- [x] **M16 — Secure report writing (v1.2.1):** private files, no overwrite,
+  no symlink following, private temp fallback.
+- [x] **M17 — Correct conclusions and release trust (v1.3.0):** TCP and proxy
+  reachability tests, proxy- and VPN-aware findings, SYSTEM/root detection,
+  report readability, JSON 1.2, pinned actions, provenance attestation,
+  reproducible build, stability policy, shorter README.
 
 ## Out of scope
 

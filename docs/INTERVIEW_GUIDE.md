@@ -362,6 +362,67 @@ story in the project: *how you found and fixed problems in your own work.*
 
 ---
 
+## M13: Second audit (v1.2.1 and v1.3.0)
+
+A second council audit asked "what still stops an IT team trusting this?"
+Every reviewer agreed the most important problems were things the tool
+*already did wrong*, not missing features.
+
+**v1.2.1: a local security hole in report writing** (`reporters.write_reports`, `cli._write`)
+- Reports contain hostnames, IPs and MACs, but were created world-readable.
+- They overwrote existing files and followed symlinks. On a shared Linux
+  machine another user could create the fixed `/tmp/triage-reports` folder
+  first, read the reports, or plant a symlink so the tool overwrote a file.
+- Fix: `os.open(path, O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)` (create new,
+  private, never follow a link), a `0700` directory owned by the user, and
+  `tempfile.mkdtemp()` for the fallback (a fresh, unguessable, private folder).
+- Concepts: file permissions and umask, symlink attacks, `O_EXCL`, TOCTOU.
+
+**v1.3.0: correct conclusions on real corporate networks**
+- **TCP reachability** (`connectivity.check_tcp`): `socket.create_connection`
+  to the DNS test host on port 443, then close, with no data sent. Ping is weak
+  evidence because firewalls drop it; a completed TCP handshake proves the
+  path to a real service works. CI showed the payoff: every cloud runner
+  blocks ping but connects on 443, so the report now *proves* ICMP filtering
+  instead of guessing.
+- **Proxy-aware findings**: a healthy laptop on a proxy-only network with
+  internal DNS used to get "internet unreachable" (WARNING). Now the proxy is
+  part of the decision, and the tool checks the proxy accepts a connection.
+- **Removing a false claim**: findings said "DNS worked, so traffic is leaving
+  the network". With a DNS server on the LAN, that's simply not true. Being
+  willing to delete your own wrong reasoning is a good interview story.
+- **VPN detection**: a full-tunnel VPN changes where "the internet" is; the
+  report now says when the default route goes through a tunnel.
+- **SYSTEM context**: when Intune/RMM runs the tool as SYSTEM, the "user"
+  proxy is SYSTEM's. The tool detects this and says so.
+- **Alert fatigue**: the "multiple interfaces disconnected" finding fired on
+  every MacBook (Thunderbolt ports), which teaches people to ignore findings.
+  It was removed. Fewer, more accurate findings beat more findings.
+- **Release trust**: release now waits for the full CI suite; actions are
+  pinned to commit SHAs (a tag can be moved, a SHA can't); a signed build
+  provenance attestation proves where the file came from; and the build is
+  reproducible (sorted entries, fixed timestamps), so anyone can rebuild a
+  tag and get the same SHA-256.
+- **Stability policy**: exit codes and finding IDs never change meaning; JSON
+  minor versions only add fields.
+
+**Rejected this round, and why:** TLS-interception detection (hard to
+explain, security teams may object), a clock-skew check (three new commands),
+printing first steps in the report (the previously rejected `next_steps`; the
+printed ID links to them instead), Nagios performance data and an Intune
+recipe (scope), code signing (needs paid certificates; attestation instead).
+
+**Questions**
+1. Why is a TCP connection better evidence than ping? What does it still not prove? (It doesn't prove HTTP or TLS work, or that the proxy lets the user through.)
+2. What is `O_EXCL` and what attack does it prevent?
+3. Why use `mkdtemp()` instead of a fixed folder in `/tmp`?
+4. Why pin GitHub Actions to commit SHAs instead of tags?
+5. What does a build provenance attestation prove that a SHA-256 checksum doesn't?
+6. Why did you remove a finding? (Alert fatigue: a finding that's always true gets ignored, along with the real ones.)
+7. The tool runs as SYSTEM from Intune. What changes in the results?
+
+---
+
 ## General questions to prepare for
 
 - "Walk me through what happens when I run `python -m endpoint_triage`."

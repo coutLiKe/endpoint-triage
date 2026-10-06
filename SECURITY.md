@@ -120,6 +120,8 @@ the user's profile or the current folder).
 | Default gateway | ICMP echo ×2 | Every scan with a gateway | No |
 | Ping target (default `1.1.1.1`, Cloudflare) | ICMP echo ×2 | Every scan | No |
 | Configured DNS servers, asking for the DNS test name (default `example.com`) | DNS | Every scan | No |
+| The DNS test name on port 443 | TCP handshake only (connect, then close; no data sent) | When the name resolves | No |
+| The configured proxy's host and port | TCP handshake only (no proxy request, no credentials) | When a proxy server is configured | No |
 | Apple software update service | HTTPS (by `softwareupdate`) | macOS, unless `--skip-updates` | No (OS-managed request) |
 | Microsoft Update or your WSUS server | HTTPS (by Windows Update Agent) | Windows, unless `--skip-updates` | No (OS-managed request) |
 | None | — | Linux update check (local cache only) | — |
@@ -140,6 +142,8 @@ Collected because it is needed for triage:
   query strings are removed** before storage; CI verifies a password in a
   proxy variable never reaches the report)
 - Test targets used and their results
+- Whether the scan ran as a standard user, root or SYSTEM (the user name is
+  never recorded) and the endpoint's local time
 - Names of pending updates
 
 Never collected: usernames, passwords, credentials, tokens, Wi-Fi keys,
@@ -161,14 +165,19 @@ Remove identifiers by hand before sharing a report outside your organization.
 | Collected data leaks off the machine | No upload, email or telemetry code exists; reports are local files | Reports contain hostname, IPs and MACs; handle them as sensitive |
 | A scan that silently fails is read as "healthy" | Missing core diagnostics make the result UNKNOWN (exit 3); every incomplete check is listed in the report | None known |
 | A hung command stalls the technician | Every command has a timeout; the DNS lookup runs in a daemon thread with a 5 s limit; `--skip-updates` removes the slowest check | See worst-case runtime below |
-| A tampered download | Releases are built by CI from a tag and published with a SHA-256 checksum | The checksum is published next to the file, so it detects corruption, not a malicious release. Code signing is out of scope (no paid certificates) |
+| A tampered download | Releases are built by CI only after the full test suite passes, from a tag, with every action pinned to a commit SHA. Each `.pyz` gets a signed build provenance attestation (`gh attestation verify endpoint-triage.pyz --repo coutLiKe/endpoint-triage`), and the build is reproducible, so anyone can rebuild a tag and compare the SHA-256 | Platform code signing (Authenticode, Apple notarization) is out of scope because it needs paid certificates; the attestation is the free substitute |
+| Reports read or redirected by another local user | Reports are created `0600` with `O_EXCL \| O_NOFOLLOW` in a `0700` directory owned by the user; the temp fallback is a fresh `mkdtemp` folder | On Windows, files inherit the output folder's permissions |
+| Per-user settings read for the wrong account (RMM/Intune runs as SYSTEM or root) | The run context is detected and shown in the report, with an INFO finding explaining that the user proxy reflects that account | Run as the signed-in user, or pass `--output` to a known folder |
 
 ### Endpoint security and application control
 
 - **EDR view.** Python starting `powershell.exe -NoProfile -NonInteractive
   -Command` with an inline script resembles techniques attackers use, so EDR
   products may alert on it. The scripts are static and read-only (listed
-  above). If needed, allow-list the release by its SHA-256 hash or path.
+  above). If needed, allow-list the release by its SHA-256 hash (published
+  with every release and stable because the build is reproducible) or path.
+  The TCP tests open ordinary outbound connections to port 443 and the proxy
+  port, with no data.
 - **AppLocker / WDAC Constrained Language Mode** blocks COM objects, so the
   Windows Update search cannot run. The tool recognizes this and reports
   the check as *unavailable: blocked by policy*. All other queries are
@@ -189,9 +198,9 @@ so the worst case is bounded:
 
 | OS | Worst case | With `--skip-updates` |
 |---|---|---|
-| macOS (8 commands × 15 s, 2 pings × 15 s, DNS 5 s, updates 180 s) | about 5.5 minutes | about 2.5 minutes |
-| Linux (3 commands × 15 s, 2 pings × 15 s, DNS 5 s, updates 180 s) | about 4.5 minutes | about 1.5 minutes |
-| Windows (4 PowerShell queries × 30 s, 2 pings × 15 s, DNS 5 s, updates 180 s) | about 5.5 minutes | about 2.5 minutes |
+| macOS (9 commands × 15 s, 2 pings × 15 s, DNS 5 s, 2 TCP tests × 5 s, updates 180 s) | about 6 minutes | about 3 minutes |
+| Linux (3 commands × 15 s, 2 pings × 15 s, DNS 5 s, 2 TCP tests × 5 s, updates 180 s) | about 4.5 minutes | about 1.5 minutes |
+| Windows (5 PowerShell queries × 30 s, 2 pings × 15 s, DNS 5 s, 2 TCP tests × 5 s, updates 180 s) | about 6 minutes | about 3.5 minutes |
 
 ## Reporting a vulnerability
 
