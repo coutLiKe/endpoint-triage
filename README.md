@@ -62,7 +62,7 @@ database, no remediation.
 Requirements: **Python 3.10 or newer**. No third-party packages.
 
 ```bash
-git clone https://github.com/<your-username>/endpoint-triage.git
+git clone https://github.com/coutLiKe/endpoint-triage.git
 cd endpoint-triage
 python -m endpoint_triage --help
 ```
