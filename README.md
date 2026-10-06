@@ -593,7 +593,7 @@ Run a single test module:
 python -m unittest tests.test_network -v
 ```
 
-What the tests cover (156 tests, under a second):
+What the tests cover (155 tests, under a second):
 
 - **Parsing for each OS** using fixtures of real command output in
   [`tests/fixtures/`](tests/fixtures) (macOS `ifconfig`/`df`/`vm_stat`/`scutil`,
