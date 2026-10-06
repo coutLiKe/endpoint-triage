@@ -65,13 +65,13 @@ def disk_findings(check: CheckResult | None) -> list[Finding]:
         low_free = total >= DISK_FREE_RULE_MIN_TOTAL_BYTES and free < DISK_CRITICAL_FREE_BYTES
         if percent >= DISK_CRITICAL_PERCENT or low_free:
             findings.append(Finding(
-                Severity.CRITICAL, f"Critically low disk space on {vol['mount']}",
+                "disk.critical_low_space", Severity.CRITICAL, f"Critically low disk space on {vol['mount']}",
                 f"{vol['mount']} is at or above {DISK_CRITICAL_PERCENT:.0f}% used or has less than "
                 f"{gib(DISK_CRITICAL_FREE_BYTES)} free. Very low free space can cause failed updates, "
                 "application crashes and slow performance.", evidence))
         elif percent >= DISK_WARNING_PERCENT:
             findings.append(Finding(
-                Severity.WARNING, f"High disk usage on {vol['mount']}",
+                "disk.high_usage", Severity.WARNING, f"High disk usage on {vol['mount']}",
                 f"{vol['mount']} is above the {DISK_WARNING_PERCENT:.0f}% usage warning threshold. "
                 "Consider freeing space before it affects updates or performance.", evidence))
     return findings
@@ -84,7 +84,7 @@ def memory_findings(check: CheckResult | None) -> list[Finding]:
     if available_percent >= MEMORY_WARNING_AVAILABLE_PERCENT:
         return []
     return [Finding(
-        Severity.WARNING, "Low available memory",
+        "memory.low_available", Severity.WARNING, "Low available memory",
         f"Less than {MEMORY_WARNING_AVAILABLE_PERCENT:.0f}% of memory is available. This may explain "
         "slowness or applications freezing; check which processes are using the most memory.",
         [f"{gib(check.data['available_bytes'])} available of {gib(check.data['total_bytes'])} "
@@ -98,7 +98,7 @@ def uptime_findings(check: CheckResult | None) -> list[Finding]:
     if days < UPTIME_INFO_DAYS:
         return []
     return [Finding(
-        Severity.INFO, "System has not been restarted recently",
+        "system.long_uptime", Severity.INFO, "System has not been restarted recently",
         f"The system has been running for more than {UPTIME_INFO_DAYS} days. Pending updates and "
         "long-running resource leaks are often resolved by a restart.",
         [f"Uptime: {days:.0f} days (last boot {check.data['last_boot']})"])]
@@ -115,7 +115,7 @@ def interface_findings(check: CheckResult | None) -> list[Finding]:
     apipa = [(i["name"], addr) for i in interfaces for addr in i["ipv4"] if addr.startswith(APIPA_PREFIX)]
     if apipa:
         findings.append(Finding(
-            Severity.WARNING, "Self-assigned (APIPA) IPv4 address",
+            "network.apipa_address", Severity.WARNING, "Self-assigned (APIPA) IPv4 address",
             "An interface has a 169.254.x.x address, which the OS assigns itself when it cannot reach "
             "a DHCP server. This usually means DHCP failed on that network.",
             [f"{name}: {addr}" for name, addr in apipa]))
@@ -124,7 +124,7 @@ def interface_findings(check: CheckResult | None) -> list[Finding]:
                  and any(not a.startswith(APIPA_PREFIX) for a in i["ipv4"])]
     if not connected:
         findings.append(Finding(
-            Severity.WARNING, "No active network connection",
+            "network.no_active_connection", Severity.WARNING, "No active network connection",
             "No network interface is up with a usable IPv4 address. Check the cable or Wi-Fi "
             "connection and whether the network adapter is enabled.",
             [f"{i['name']}: {i['status']}, IPv4: {', '.join(i['ipv4']) or 'none'}" for i in interfaces]
@@ -133,7 +133,7 @@ def interface_findings(check: CheckResult | None) -> list[Finding]:
     down = [i["name"] for i in interfaces if i["status"] == "down"]
     if len(down) >= DISCONNECTED_INTERFACES_INFO_COUNT:
         findings.append(Finding(
-            Severity.INFO, "Multiple network interfaces are disconnected",
+            "network.interfaces_disconnected", Severity.INFO, "Multiple network interfaces are disconnected",
             "Several interfaces are down. This is normal for unused ports or adapters, but confirm "
             "the interface the user expects to be using is connected.",
             [f"Disconnected: {', '.join(down)}"]))
@@ -143,7 +143,7 @@ def interface_findings(check: CheckResult | None) -> list[Finding]:
 def dns_server_findings(check: CheckResult | None) -> list[Finding]:
     if not _ok(check) or check.data.get("servers"):
         return []
-    return [Finding(Severity.WARNING, "No DNS servers configured",
+    return [Finding("network.no_dns_servers", Severity.WARNING, "No DNS servers configured",
                     "No DNS servers were found, so hostnames cannot be resolved.",
                     ["DNS server list is empty"])]
 
@@ -183,38 +183,38 @@ def connectivity_findings(gateway: CheckResult | None, gateway_ping: CheckResult
 
     if _ok(gateway) and not gateway.data.get("gateway"):
         findings.append(Finding(
-            Severity.WARNING, "No default gateway",
+            "connectivity.no_default_gateway", Severity.WARNING, "No default gateway",
             "No default route is configured, so traffic cannot leave the local subnet. This often "
             "means the device is not connected or did not receive a full DHCP configuration.",
             ["Default gateway: none"]))
 
     if gateway_failed and public_failed and _ok(dns):
         findings.append(Finding(
-            Severity.INFO, "Ping appears to be blocked",
+            "connectivity.ping_blocked", Severity.INFO, "Ping appears to be blocked",
             "Neither the gateway nor a public IP address answered ping, but DNS resolution worked. "
             "Because DNS answers had to travel over the network, ping (ICMP) is most likely being "
             "filtered, which is common on corporate and cloud networks. If the user still reports "
             "problems, note that a DNS answer can come from a local cache.", evidence))
     elif gateway_failed and public_failed:
         findings.append(Finding(
-            Severity.WARNING, "Local network or gateway unreachable",
+            "connectivity.local_network_unreachable", Severity.WARNING, "Local network or gateway unreachable",
             "Neither the default gateway nor a public IP address responded. The problem is likely on "
             "the local network (cable, Wi-Fi, switch port, VLAN, or the router itself).", evidence))
     elif gateway_failed and public_ok:
         findings.append(Finding(
-            Severity.INFO, "Default gateway did not respond to ping",
+            "connectivity.gateway_no_ping_reply", Severity.INFO, "Default gateway did not respond to ping",
             "The gateway did not answer ping, but internet connectivity works. Many routers and "
             "firewalls ignore ping, so this is usually not a problem by itself.", evidence))
     elif public_failed and _ok(dns):
         # Normal behind corporate firewalls that only allow traffic through a proxy.
         findings.append(Finding(
-            Severity.INFO, "Public IP address did not respond to ping",
+            "connectivity.public_ip_no_ping_reply", Severity.INFO, "Public IP address did not respond to ping",
             "The public IP address did not answer ping, but DNS resolution worked, so traffic is "
             "leaving the local network. Outbound ping (ICMP) is most likely blocked by a firewall.",
             evidence))
     elif public_failed:
         findings.append(Finding(
-            Severity.WARNING, "Public IP address unreachable",
+            "connectivity.internet_unreachable", Severity.WARNING, "Public IP address unreachable",
             "A public IP address did not respond and DNS resolution also failed. If the gateway "
             "responded, the problem is likely beyond the local network (ISP, upstream firewall, "
             "or a required proxy).", evidence))
@@ -222,7 +222,7 @@ def connectivity_findings(gateway: CheckResult | None, gateway_ping: CheckResult
     if _failed(dns):
         if public_failed:
             findings.append(Finding(
-                Severity.INFO, "DNS resolution also failed",
+                "connectivity.dns_failed_no_internet", Severity.INFO, "DNS resolution also failed",
                 "DNS resolution failed, which is expected when there is no internet connectivity. "
                 "Re-test DNS after connectivity is restored.", evidence))
         else:
@@ -230,12 +230,12 @@ def connectivity_findings(gateway: CheckResult | None, gateway_ping: CheckResult
             explanation += (", but the public IP connectivity test succeeded. This may indicate a DNS "
                             "configuration or DNS server issue." if public_ok else
                             ". Check the configured DNS servers.")
-            findings.append(Finding(Severity.WARNING, "DNS resolution failed", explanation, evidence))
+            findings.append(Finding("connectivity.dns_failed", Severity.WARNING, "DNS resolution failed", explanation, evidence))
 
     for check in (gateway_ping, public_ping):
         if check is not None and check.status == Status.UNAVAILABLE:
             findings.append(Finding(
-                Severity.INFO, f"Unable to run test: {check.title}",
+                "connectivity.test_unavailable", Severity.INFO, f"Unable to run test: {check.title}",
                 "This connectivity test could not run on this system, so this part of the network "
                 "path was not verified.", [check.error or "unknown reason"]))
     return findings
@@ -254,7 +254,7 @@ def update_findings(check: CheckResult | None) -> list[Finding]:
     if check.data.get("restart_required"):
         evidence.append("At least one update requires a restart")
     return [Finding(
-        Severity.INFO, "Operating system updates are pending",
+        "updates.pending", Severity.INFO, "Operating system updates are pending",
         "Pending updates may include security or bug fixes relevant to the reported issue. "
         "Install them according to your organization's patching process.", evidence)]
 
@@ -272,7 +272,7 @@ def undetermined_findings(report: Report) -> list[Finding]:
         if check.id.startswith("connectivity.") or check.status not in (Status.FAILED, Status.UNAVAILABLE):
             continue
         findings.append(Finding(
-            Severity.INFO, f"Unable to determine: {check.title}",
+            "check.undetermined", Severity.INFO, f"Unable to determine: {check.title}",
             "This diagnostic could not be collected. See Errors / Unavailable Checks for details.",
             [f"{check.status.value}: {check.error}"]))
     return findings

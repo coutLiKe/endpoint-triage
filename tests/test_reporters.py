@@ -86,7 +86,8 @@ class JsonReportTests(unittest.TestCase):
 
     def test_findings_shape(self):
         for finding in self.data["findings"]:
-            self.assertEqual(set(finding), {"severity", "title", "explanation", "evidence"})
+            self.assertEqual(set(finding), {"id", "severity", "title", "explanation", "evidence"})
+            self.assertRegex(finding["id"], r"^[a-z]+\.[a-z_]+$")
             self.assertIn(finding["severity"], {"INFO", "WARNING", "CRITICAL"})
             self.assertIsInstance(finding["evidence"], list)
 

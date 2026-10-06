@@ -75,6 +75,10 @@ class CheckResult:
 
 @dataclass
 class Finding:
+    # Stable identifier such as "network.apipa_address". Titles are display
+    # text and may change; scripts, RMM alerts and KB articles key on the ID.
+    # Every ID is documented in docs/findings.md.
+    id: str
     severity: Severity
     title: str
     explanation: str
@@ -82,6 +86,7 @@ class Finding:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "id": self.id,
             "severity": self.severity.value,
             "title": self.title,
             "explanation": self.explanation,

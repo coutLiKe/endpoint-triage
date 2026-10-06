@@ -186,16 +186,16 @@ class OverallStatusTests(unittest.TestCase):
         return report
 
     def test_info_only_is_ok(self):
-        info = findings.Finding(Severity.INFO, "x", "y")
+        info = findings.Finding("test.info", Severity.INFO, "x", "y")
         self.assertEqual(self.report(disks(disk("/", 1, 99)), [info]).overall_status(), "OK")
 
     def test_missing_core_check_is_unknown_even_with_warning(self):
-        warning = findings.Finding(Severity.WARNING, "x", "y")
+        warning = findings.Finding("test.warning", Severity.WARNING, "x", "y")
         failed = CheckResult.failed("resources.disks", "Disks", "df timed out")
         self.assertEqual(self.report(failed, [warning]).overall_status(), "UNKNOWN")
 
     def test_critical_beats_unknown(self):
-        critical = findings.Finding(Severity.CRITICAL, "x", "y")
+        critical = findings.Finding("test.critical", Severity.CRITICAL, "x", "y")
         failed = CheckResult.failed("resources.disks", "Disks", "df timed out")
         self.assertEqual(self.report(failed, [critical]).overall_status(), "CRITICAL")
 
