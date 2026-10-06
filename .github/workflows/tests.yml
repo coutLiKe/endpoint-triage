@@ -59,3 +59,75 @@ jobs:
           name: triage-report-${{ matrix.os }}
           path: triage-reports/
           if-no-files-found: ignore
+
+  # Simulates a locked-down corporate Windows laptop on a real Windows runner:
+  # 1. PowerShell Constrained Language Mode, as enforced by AppLocker/WDAC
+  #    (forced here with the __PSLockdownPolicy test variable).
+  # 2. A standard (non-administrator) local user.
+  # Core diagnostics must still be collected (exit code 0-2, never 3).
+  windows-lockdown:
+    name: windows-latest / lockdown simulation
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Build the single-file release
+        run: python tools/build_zipapp.py
+
+      - name: Scan under Constrained Language Mode
+        shell: pwsh
+        env:
+          __PSLockdownPolicy: "4"
+        run: |
+          # Prove the policy is active for the Windows PowerShell child processes the tool starts.
+          $mode = powershell -NoProfile -Command '$ExecutionContext.SessionState.LanguageMode'
+          Write-Host "Language mode for child powershell.exe: $mode"
+          if ($mode -ne "ConstrainedLanguage") { throw "Constrained Language Mode is not active" }
+          python dist/endpoint-triage.pyz --output clm-reports
+          $code = $LASTEXITCODE
+          Get-Content clm-reports/*.txt
+          Write-Host "endpoint-triage exit code: $code"
+          if ($code -gt 2) { throw "Core diagnostics failed under Constrained Language Mode" }
+          if (-not (Select-String -Path clm-reports/*.txt -Pattern "blocked by policy" -Quiet)) {
+            throw "Expected the update check to be reported as blocked by policy"
+          }
+
+      - name: Scan as a standard (non-admin) user
+        shell: pwsh
+        run: |
+          # Throwaway local account on the ephemeral runner, with a random password.
+          $password = ConvertTo-SecureString ("T1-" + [guid]::NewGuid()) -AsPlainText -Force
+          New-LocalUser -Name triageuser -Password $password -AccountNeverExpires | Out-Null
+          Add-LocalGroupMember -Group Users -Member triageuser
+          $isAdmin = (Get-LocalGroupMember -Group Administrators).Name -match "triageuser"
+          if ($isAdmin) { throw "triageuser must not be an administrator" }
+
+          $work = "C:\triage-standard-user"
+          New-Item -ItemType Directory -Path $work | Out-Null
+          Copy-Item dist/endpoint-triage.pyz $work
+          icacls $work /grant "triageuser:(OI)(CI)M" | Out-Null
+
+          $python = (Get-Command python).Source
+          $cred = New-Object System.Management.Automation.PSCredential("triageuser", $password)
+          $proc = Start-Process -FilePath $python -ArgumentList "endpoint-triage.pyz --output reports" `
+            -WorkingDirectory $work -Credential $cred -LoadUserProfile -Wait -PassThru `
+            -RedirectStandardOutput "$work\stdout.txt" -RedirectStandardError "$work\stderr.txt"
+          Get-Content "$work\stdout.txt", "$work\stderr.txt"
+          Get-Content "$work\reports\*.txt"
+          Write-Host "endpoint-triage exit code: $($proc.ExitCode)"
+          if ($proc.ExitCode -gt 2) { throw "Core diagnostics failed for a standard user" }
+
+      - name: Upload lockdown reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: triage-report-windows-lockdown
+          path: |
+            clm-reports/
+            C:/triage-standard-user/reports/
+          if-no-files-found: ignore
+
