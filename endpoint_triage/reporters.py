@@ -7,6 +7,7 @@ means a new output format can be added without touching any collector.
 from __future__ import annotations
 
 import json
+import os
 import re
 import textwrap
 from pathlib import Path
@@ -354,12 +355,47 @@ def report_basename(report: Report) -> str:
     return f"triage-{safe_host}-{report.generated_at.strftime('%Y%m%d-%H%M%S')}"
 
 
+MAX_NAME_ATTEMPTS = 100
+
+
 def write_reports(report: Report, output_dir: Path, debug: bool = False) -> tuple[Path, Path]:
-    """Write both reports into output_dir (created if needed). Raises OSError."""
-    output_dir.mkdir(parents=True, exist_ok=True)
+    """Write both reports into output_dir. Raises OSError.
+
+    Reports contain the hostname, IP and MAC addresses, so they are written
+    defensively:
+    - a new directory is created private to the user (0700 on macOS/Linux),
+      and a directory owned by someone else is refused;
+    - files are created private (0600) and exclusively: an existing file or
+      symlink is never overwritten or followed;
+    - if a name is taken (two runs in the same second), -1, -2, ... is added.
+    """
+    output_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _check_directory_owner(output_dir)
+    text, data = render_text(report, debug), render_json(report, debug)
     # Not Path.with_suffix(): hostnames such as "pc.corp.local" contain dots.
     base = report_basename(report)
-    text_path, json_path = output_dir / f"{base}.txt", output_dir / f"{base}.json"
-    text_path.write_text(render_text(report, debug), encoding="utf-8")
-    json_path.write_text(render_json(report, debug), encoding="utf-8")
-    return text_path, json_path
+    for attempt in range(MAX_NAME_ATTEMPTS):
+        name = base if attempt == 0 else f"{base}-{attempt}"
+        text_path, json_path = output_dir / f"{name}.txt", output_dir / f"{name}.json"
+        try:
+            _create_private_file(text_path, text)
+        except FileExistsError:
+            continue
+        _create_private_file(json_path, data)
+        return text_path, json_path
+    raise FileExistsError(f"could not find a free report name in {output_dir}")
+
+
+def _check_directory_owner(path: Path) -> None:
+    if path.is_symlink():
+        raise PermissionError(f"refusing to write into symlinked directory {path}")
+    if hasattr(os, "getuid") and path.stat().st_uid != os.getuid():
+        raise PermissionError(f"refusing to write into {path}: it is owned by another user")
+
+
+def _create_private_file(path: Path, content: str) -> None:
+    # O_EXCL: fail if anything (including a symlink) already exists at path.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(content)

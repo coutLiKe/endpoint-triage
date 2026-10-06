@@ -141,6 +141,8 @@ def _write(report, args) -> tuple[Path, Path]:
     try:
         return write_reports(report, Path(DEFAULT_OUTPUT_DIR), debug=args.debug)
     except OSError as exc:
-        fallback = Path(tempfile.gettempdir()) / DEFAULT_OUTPUT_DIR
+        # mkdtemp creates a new, uniquely named directory only this user can
+        # access, so another user on a shared machine cannot pre-create it.
+        fallback = Path(tempfile.mkdtemp(prefix=f"{DEFAULT_OUTPUT_DIR}-"))
         print(f"note: cannot write to ./{DEFAULT_OUTPUT_DIR} ({exc}); using {fallback}", file=sys.stderr)
         return write_reports(report, fallback, debug=args.debug)

@@ -4,6 +4,24 @@ All notable changes are listed here. Versions follow
 [semantic versioning](https://semver.org/); the JSON report has its own
 `schema_version` (minor = additive, major = breaking).
 
+## [1.2.1] - 2026-10-06
+
+Security fix from a second design audit.
+
+### Security
+- Reports were written with default permissions (world-readable on
+  macOS/Linux), could overwrite an existing file, and followed symlinks. The
+  temp-folder fallback used a fixed shared path (`/tmp/triage-reports`) that
+  another local user could create first. Reports are now created `0600` with
+  `O_EXCL | O_NOFOLLOW` in a `0700` directory owned by the user, a directory
+  owned by someone else is refused, and the fallback is a new private
+  `mkdtemp` folder.
+
+### Fixed
+- Two runs in the same second no longer overwrite each other (`-1` suffix).
+- README claims about overwriting and exit codes corrected; SECURITY.md
+  documents report permissions and handling.
+
 ## [1.2.0] - 2026-10-06
 
 ### Added

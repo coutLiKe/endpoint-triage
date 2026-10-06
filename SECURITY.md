@@ -85,10 +85,33 @@ proxy environment variables `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` and
 ## Files written
 
 Only the two report files, `triage-<hostname>-<timestamp>.txt` and `.json`,
-in the output directory: `--output DIR`, otherwise `./triage-reports`, or
-`<system temp>/triage-reports` if the current folder is not writable. The
-hostname in the file name keeps only letters, digits, `.` and `-`; any other
-character becomes `_`, so it cannot contain path separators.
+in the output directory: `--output DIR`, otherwise `./triage-reports`, or a
+new private folder (`tempfile.mkdtemp`, e.g. `/tmp/triage-reports-k3j9x2`) if
+the current folder is not writable. The hostname in the file name keeps only
+letters, digits, `.` and `-`; any other character becomes `_`, so it cannot
+contain path separators.
+
+Because reports contain identifying data, they are written defensively
+(`reporters.write_reports`):
+
+- A new output directory is created with mode `0700` (owner only), and a
+  directory owned by another user, or a symlinked directory, is refused.
+- Files are created with mode `0600` using `O_CREAT | O_EXCL | O_NOFOLLOW`:
+  an existing file is never overwritten and a planted symlink is never
+  followed, so another local user cannot redirect the write or read the result.
+- If a name is taken (two runs in the same second), `-1`, `-2`, ... is added.
+
+On Windows, files inherit the permissions of the output folder (by default
+the user's profile or the current folder).
+
+## Handling reports
+
+- Treat reports like any ticket attachment containing internal network
+  details. Attach them to the ticket, then delete the local copies; the tool
+  never deletes or rotates old reports itself.
+- Follow your organization's retention policy for ticket attachments.
+- Remove the hostname, IP and MAC addresses by hand before sharing a report
+  outside your organization.
 
 ## Network traffic
 

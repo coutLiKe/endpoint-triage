@@ -155,8 +155,10 @@ JSON report: triage-reports/triage-MacBook-Pro.local-20261006-004833.json
 Exit code 1: WARNING (at least one WARNING finding)
 ```
 
-Report files are named `triage-<hostname>-<UTC timestamp>.txt/.json`, so
-repeated runs never overwrite each other.
+Report files are named `triage-<hostname>-<UTC timestamp>.txt/.json`. An
+existing file is never overwritten: if two runs land in the same second, the
+second gets a `-1` suffix. Reports are created readable only by the user who
+ran the tool.
 
 ## Supported operating systems
 
@@ -200,7 +202,7 @@ Update check that failed. The first sections look like this:
 ```text
 Endpoint Triage Report
 ======================
-Generated 2026-10-05 14:03:22 UTC by endpoint-triage 1.2.0
+Generated 2026-10-05 14:03:22 UTC by endpoint-triage 1.2.1
 Read-only scan: no system settings were changed.
 
 Summary
@@ -260,7 +262,7 @@ The JSON report contains the same data in a versioned, documented shape:
 ```json
 {
   "schema_version": "1.1",
-  "tool": { "name": "endpoint-triage", "version": "1.2.0" },
+  "tool": { "name": "endpoint-triage", "version": "1.2.1" },
   "generated_at": "2026-10-05T14:03:22+00:00",
   "duration_seconds": 7.4,
   "summary": {
@@ -286,7 +288,8 @@ The JSON report contains the same data in a versioned, documented shape:
 ```
 
 - `overall_status` is one of `OK`, `WARNING`, `CRITICAL`, `UNKNOWN` and
-  always matches the exit code.
+  matches the exit code of the run that produced the report. (If the report
+  cannot be written at all, the tool exits 3 and there is no report.)
 - Every finding has a stable `id` (documented in
   [docs/findings.md](docs/findings.md)). Alert on the ID, not the title.
 - Every check has the same five fields (`id`, `title`, `status`, `data`,
@@ -543,8 +546,9 @@ silent, and an incomplete scan never claims to be healthy.**
 7. **Users see messages, not stack traces.** Normal mode shows one-line
    errors. `--debug` logs every command to stderr and adds stderr output and
    tracebacks to the reports.
-8. **Reports are always written somewhere.** If the current folder is not
-   writable, reports go to the system temp folder and the path is printed.
+8. **Reports are written safely.** If the current folder is not writable,
+   reports go to a new private folder in the system temp directory and the
+   path is printed. If even that fails, the tool exits 3 with an error.
 
 ## Privacy and read-only design
 
@@ -610,7 +614,7 @@ Run a single test module:
 python -m unittest tests.test_network -v
 ```
 
-What the tests cover (171 tests, under a second):
+What the tests cover (175 tests, under a second):
 
 - **Parsing for each OS** using fixtures of real command output in
   [`tests/fixtures/`](tests/fixtures) (macOS `ifconfig`/`df`/`vm_stat`/`scutil`,

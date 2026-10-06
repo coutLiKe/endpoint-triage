@@ -1,6 +1,9 @@
 import json
+import os
+import stat
 import tempfile
 import unittest
+from unittest import mock
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -128,6 +131,44 @@ class WriteReportTests(unittest.TestCase):
             self.assertEqual(sorted(p.name for p in out.iterdir()), sorted([text_path.name, json_path.name]))
 
 
+
+class SecureWriteTests(unittest.TestCase):
+    def test_same_second_runs_never_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = reporters.write_reports(build_sample_report(), Path(tmp))
+            second = reporters.write_reports(build_sample_report(), Path(tmp))
+            self.assertNotEqual(first, second)
+            self.assertTrue(second[0].name.endswith("-1.txt"))
+            self.assertEqual(len(list(Path(tmp).iterdir())), 4)
+
+    @unittest.skipIf(os.name == "nt", "POSIX permissions")
+    def test_files_and_new_directory_are_private(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "reports"
+            text_path, json_path = reporters.write_reports(build_sample_report(), out)
+            self.assertEqual(stat.S_IMODE(out.stat().st_mode) & 0o077, 0)
+            for path in (text_path, json_path):
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+
+    @unittest.skipIf(os.name == "nt", "symlinks need privileges on Windows")
+    def test_planted_symlink_is_not_followed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            victim = Path(tmp) / "victim.txt"
+            victim.write_text("original")
+            out = Path(tmp) / "reports"
+            out.mkdir()
+            planted = out / (reporters.report_basename(build_sample_report()) + ".txt")
+            planted.symlink_to(victim)
+            text_path, _ = reporters.write_reports(build_sample_report(), out)
+            self.assertEqual(victim.read_text(), "original")
+            self.assertNotEqual(text_path, planted)
+
+    @unittest.skipIf(os.name == "nt", "POSIX ownership")
+    def test_directory_owned_by_someone_else_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch("endpoint_triage.reporters.os.getuid", return_value=os.getuid() + 1):
+            with self.assertRaises(PermissionError):
+                reporters.write_reports(build_sample_report(), Path(tmp))
 
 class GoldenFileTests(unittest.TestCase):
     """The published sample reports are golden files: any change to the report

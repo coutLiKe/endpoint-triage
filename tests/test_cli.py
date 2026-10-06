@@ -70,10 +70,14 @@ class MainTests(unittest.TestCase):
                 return real_write(report, output_dir, debug)
 
             with mock.patch("endpoint_triage.cli.write_reports", flaky_write), \
-                    mock.patch("endpoint_triage.cli.tempfile.gettempdir", return_value=tmp):
+                    mock.patch("endpoint_triage.cli.tempfile.tempdir", tmp):
                 code, out, err = run_cli()
             self.assertEqual(code, cli.EXIT_CRITICAL)
-            self.assertEqual(calls[-1], Path(tmp) / cli.DEFAULT_OUTPUT_DIR)
+            fallback = calls[-1]
+            # A fresh, uniquely named private directory, not a fixed shared path.
+            self.assertEqual(fallback.parent, Path(tmp))
+            self.assertTrue(fallback.name.startswith("triage-reports-"))
+            self.assertNotEqual(fallback.name, cli.DEFAULT_OUTPUT_DIR)
             self.assertIn("using", err)
             self.assertIn(tmp, out)
 
