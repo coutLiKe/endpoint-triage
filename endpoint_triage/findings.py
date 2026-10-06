@@ -61,7 +61,7 @@ def disk_findings(check: CheckResult | None) -> list[Finding]:
     findings = []
     for vol in check.data.get("volumes", []):
         percent, free, total = vol["used_percent"], vol["free_bytes"], vol["total_bytes"]
-        evidence = [f"{vol['mount']}: {percent:.1f}% used, {gib(free)} free of {gib(total)}"]
+        evidence = [f"Volume {vol['mount']} is {percent:.1f}% used, {gib(free)} free of {gib(total)}"]
         low_free = total >= DISK_FREE_RULE_MIN_TOTAL_BYTES and free < DISK_CRITICAL_FREE_BYTES
         if percent >= DISK_CRITICAL_PERCENT or low_free:
             findings.append(Finding(
