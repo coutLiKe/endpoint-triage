@@ -6,7 +6,6 @@ from pathlib import Path
 from unittest import mock
 
 from endpoint_triage import __version__, cli
-from endpoint_triage.models import Severity
 from tests.sample_report import build_sample_report
 
 
@@ -25,10 +24,10 @@ def run_cli(*argv, report=None, scan_error=None):
 
 class ExitCodeTests(unittest.TestCase):
     def test_mapping(self):
-        self.assertEqual(cli.exit_code_for(None), 0)
-        self.assertEqual(cli.exit_code_for(Severity.INFO), 0)
-        self.assertEqual(cli.exit_code_for(Severity.WARNING), 1)
-        self.assertEqual(cli.exit_code_for(Severity.CRITICAL), 2)
+        self.assertEqual(cli.exit_code_for("OK"), 0)
+        self.assertEqual(cli.exit_code_for("WARNING"), 1)
+        self.assertEqual(cli.exit_code_for("CRITICAL"), 2)
+        self.assertEqual(cli.exit_code_for("UNKNOWN"), 3)
 
 
 class MainTests(unittest.TestCase):

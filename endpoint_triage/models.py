@@ -89,6 +89,10 @@ class Finding:
         }
 
 
+# Without these, the scan cannot honestly call the endpoint healthy, so a
+# missing or failed core check makes the overall status UNKNOWN.
+CORE_CHECK_IDS = ("system.os", "resources.memory", "resources.disks", "network.interfaces")
+
 # Report sections in display order: (key, heading).
 SECTIONS = [
     ("system", "System Information"),
@@ -121,3 +125,26 @@ class Report:
         if not self.findings:
             return None
         return max((f.severity for f in self.findings), key=lambda s: s.rank)
+
+    def incomplete_core_checks(self) -> list[str]:
+        incomplete = []
+        for check_id in CORE_CHECK_IDS:
+            check = self.get(check_id)
+            if check is None or check.status != Status.OK:
+                incomplete.append(check_id)
+        return incomplete
+
+    def overall_status(self) -> str:
+        """Nagios-style result: CRITICAL > UNKNOWN > WARNING > OK.
+
+        INFO findings never change the result. UNKNOWN means core
+        diagnostics are missing, so "OK" would be a claim the scan can't back up.
+        """
+        highest = self.highest_severity()
+        if highest == Severity.CRITICAL:
+            return "CRITICAL"
+        if self.incomplete_core_checks():
+            return "UNKNOWN"
+        if highest == Severity.WARNING:
+            return "WARNING"
+        return "OK"

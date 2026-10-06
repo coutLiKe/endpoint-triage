@@ -205,14 +205,19 @@ def connectivity_findings(gateway: CheckResult | None, gateway_ping: CheckResult
             Severity.INFO, "Default gateway did not respond to ping",
             "The gateway did not answer ping, but internet connectivity works. Many routers and "
             "firewalls ignore ping, so this is usually not a problem by itself.", evidence))
+    elif public_failed and _ok(dns):
+        # Normal behind corporate firewalls that only allow traffic through a proxy.
+        findings.append(Finding(
+            Severity.INFO, "Public IP address did not respond to ping",
+            "The public IP address did not answer ping, but DNS resolution worked, so traffic is "
+            "leaving the local network. Outbound ping (ICMP) is most likely blocked by a firewall.",
+            evidence))
     elif public_failed:
-        explanation = ("A public IP address did not respond to ping. If the gateway responded, the "
-                       "problem is likely beyond the local network (ISP, upstream firewall, or a "
-                       "network that blocks outbound ping).")
-        if _ok(dns):
-            explanation += (" DNS resolution succeeded, which suggests some connectivity exists and "
-                            "ping may simply be blocked.")
-        findings.append(Finding(Severity.WARNING, "Public IP address unreachable", explanation, evidence))
+        findings.append(Finding(
+            Severity.WARNING, "Public IP address unreachable",
+            "A public IP address did not respond and DNS resolution also failed. If the gateway "
+            "responded, the problem is likely beyond the local network (ISP, upstream firewall, "
+            "or a required proxy).", evidence))
 
     if _failed(dns):
         if public_failed:

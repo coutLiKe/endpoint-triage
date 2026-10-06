@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 
 from endpoint_triage import __version__
-from endpoint_triage.models import Severity
 from endpoint_triage.reporters import overall_status, write_reports
 from endpoint_triage.scanner import run_scan
 
@@ -17,7 +16,8 @@ from endpoint_triage.scanner import run_scan
 EXIT_OK = 0          # Scan completed, no WARNING or CRITICAL findings
 EXIT_WARNING = 1     # Scan completed, at least one WARNING finding
 EXIT_CRITICAL = 2    # Scan completed, at least one CRITICAL finding
-EXIT_ERROR = 3       # The tool itself failed (e.g. could not write the report)
+EXIT_UNKNOWN = 3     # Core diagnostics missing, or the tool itself failed
+EXIT_ERROR = EXIT_UNKNOWN
 EXIT_USAGE = 64      # Invalid command-line arguments (EX_USAGE)
 EXIT_INTERRUPTED = 130  # Stopped with Ctrl+C
 
@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = _ArgumentParser(
         prog="endpoint-triage",
         description="Collect read-only endpoint diagnostics and write a help desk report (.txt and .json).",
-        epilog="Exit codes: 0 OK, 1 WARNING, 2 CRITICAL, 3 tool error, 64 usage error.",
+        epilog="Exit codes: 0 OK, 1 WARNING, 2 CRITICAL, 3 UNKNOWN (incomplete scan or tool error), 64 usage error.",
     )
     parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT_DIR, metavar="DIR",
                         help=f"directory to write reports into (default: ./{DEFAULT_OUTPUT_DIR})")
@@ -47,12 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def exit_code_for(severity: Severity | None) -> int:
-    if severity == Severity.CRITICAL:
-        return EXIT_CRITICAL
-    if severity == Severity.WARNING:
-        return EXIT_WARNING
-    return EXIT_OK
+EXIT_CODES = {"OK": EXIT_OK, "WARNING": EXIT_WARNING, "CRITICAL": EXIT_CRITICAL, "UNKNOWN": EXIT_UNKNOWN}
+
+
+def exit_code_for(status: str) -> int:
+    return EXIT_CODES[status]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -88,4 +87,4 @@ def main(argv: list[str] | None = None) -> int:
     print()
     print(f"Text report: {text_path}")
     print(f"JSON report: {json_path}")
-    return exit_code_for(report.highest_severity())
+    return exit_code_for(report.overall_status())

@@ -41,9 +41,7 @@ def format_duration(seconds: int) -> str:
 
 
 def overall_status(report: Report) -> str:
-    """OK unless there is a WARNING or CRITICAL finding (INFO does not count)."""
-    highest = report.highest_severity()
-    return highest.value if highest and highest != Severity.INFO else "OK"
+    return report.overall_status()
 
 
 def finding_counts(report: Report) -> dict[str, int]:
@@ -230,6 +228,8 @@ def render_text(report: Report, debug: bool = False) -> str:
         _line("Hostname", hostname),
         _line("Operating system", os_label),
         _line("Overall status", overall_status(report)),
+        *([_line("Incomplete", ", ".join(report.incomplete_core_checks()))]
+          if report.incomplete_core_checks() else []),
         _line("Findings", f"{findings['CRITICAL']} critical, {findings['WARNING']} warning, {findings['INFO']} info"),
         _line("Checks", ", ".join(f"{count} {status}" for status, count in checks.items())),
         _line("Scan duration", f"{report.duration_seconds:.1f} s"),

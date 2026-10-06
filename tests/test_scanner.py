@@ -5,7 +5,7 @@ import unittest
 from unittest import mock
 
 from endpoint_triage import scanner
-from endpoint_triage.models import Status
+from endpoint_triage.models import Severity, Status
 from endpoint_triage.runner import ALLOWED_COMMANDS
 from tests.helpers import FakeRunner, fake_files, fixture, ok
 
@@ -58,6 +58,21 @@ class ScannerTests(unittest.TestCase):
         report = scanner.run_scan("Linux", run=FakeRunner(), read_file=fake_files({}), resolver=failing_resolver)
         self.assertEqual(len(report.all_checks()), 11)
         self.assertGreater(len(report.findings), 0)
+
+    def test_scan_that_collected_nothing_is_unknown_not_ok(self):
+        # Only DNS works; every command is missing. This must never report "OK".
+        report = scanner.run_scan("Linux", run=FakeRunner(), read_file=fake_files({}), resolver=resolver)
+        self.assertNotIn(report.highest_severity(), (Severity.WARNING, Severity.CRITICAL))
+        self.assertEqual(report.overall_status(), "UNKNOWN")
+        self.assertIn("resources.disks", report.incomplete_core_checks())
+
+    def test_complete_healthy_scan_is_ok(self):
+        files = dict(LINUX_FILES)
+        runner = linux_runner()
+        runner.responses["df"] = ok("Filesystem 1024-blocks Used Available Capacity Mounted on\n"
+                                    "/dev/sda1 100000000 10000000 90000000 10% /\n")
+        report = scanner.run_scan("Linux", run=runner, read_file=fake_files(files), resolver=resolver)
+        self.assertEqual(report.overall_status(), "OK")
 
     def test_collector_crash_is_contained(self):
         with mock.patch("endpoint_triage.collectors.resources.collect", side_effect=RuntimeError("bug")):

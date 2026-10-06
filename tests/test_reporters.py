@@ -100,12 +100,12 @@ class JsonReportTests(unittest.TestCase):
         update = debug_data["sections"]["updates"][0]
         self.assertIn("returncode", update["debug"])
 
-    def test_info_only_findings_are_overall_ok(self):
+    def test_report_without_core_checks_is_unknown(self):
         report = Report("1.0.0", "Linux", datetime(2026, 1, 1, tzinfo=timezone.utc), 0.1, {
             "updates": [CheckResult.unavailable("updates.os", "Pending OS updates", "no apt")]})
         from endpoint_triage.findings import analyze
         report.findings = analyze(report)
-        self.assertEqual(reporters.report_to_dict(report)["summary"]["overall_status"], "OK")
+        self.assertEqual(reporters.report_to_dict(report)["summary"]["overall_status"], "UNKNOWN")
 
 
 class WriteReportTests(unittest.TestCase):

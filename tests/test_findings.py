@@ -156,9 +156,10 @@ class ConnectivityClassificationTests(unittest.TestCase):
     def test_gateway_ignores_ping_but_internet_works(self):
         self.assertEqual(self.classify(False, True, True), [(Severity.INFO, "Default gateway did not respond to ping")])
 
-    def test_public_ping_blocked_but_dns_works(self):
-        found = findings.connectivity_findings(GATEWAY, gw_ping(True), ip_ping(False), dns(True))
-        self.assertIn("ping may simply be blocked", found[0].explanation)
+    def test_public_ping_blocked_but_dns_works_is_info(self):
+        # The normal state of a healthy laptop behind a proxy-only corporate firewall.
+        self.assertEqual(self.classify(True, False, True),
+                         [(Severity.INFO, "Public IP address did not respond to ping")])
 
     def test_no_default_gateway(self):
         no_gateway = CheckResult.ok("network.gateway", "Default gateway", {"gateway": None, "interface": None})
@@ -171,6 +172,32 @@ class ConnectivityClassificationTests(unittest.TestCase):
         missing = CheckResult.unavailable("connectivity.public_ip_ping", "Ping public IP address", "ping command not found")
         found = titles(findings.connectivity_findings(GATEWAY, gw_ping(True), missing, dns(True)))
         self.assertEqual(found, [(Severity.INFO, "Unable to run test: Ping public IP address")])
+
+
+class OverallStatusTests(unittest.TestCase):
+    CORE = [CheckResult.ok("system.os", "OS", {}), CheckResult.ok("resources.memory", "Memory", {}),
+            CheckResult.ok("network.interfaces", "Interfaces", {"interfaces": []})]
+
+    def report(self, disks_check, found):
+        report = Report("1.0.0", "Linux", datetime(2026, 10, 5, tzinfo=timezone.utc), 1.0,
+                        {"system": self.CORE[:1], "resources": [self.CORE[1], disks_check],
+                         "network": self.CORE[2:]})
+        report.findings = found
+        return report
+
+    def test_info_only_is_ok(self):
+        info = findings.Finding(Severity.INFO, "x", "y")
+        self.assertEqual(self.report(disks(disk("/", 1, 99)), [info]).overall_status(), "OK")
+
+    def test_missing_core_check_is_unknown_even_with_warning(self):
+        warning = findings.Finding(Severity.WARNING, "x", "y")
+        failed = CheckResult.failed("resources.disks", "Disks", "df timed out")
+        self.assertEqual(self.report(failed, [warning]).overall_status(), "UNKNOWN")
+
+    def test_critical_beats_unknown(self):
+        critical = findings.Finding(Severity.CRITICAL, "x", "y")
+        failed = CheckResult.failed("resources.disks", "Disks", "df timed out")
+        self.assertEqual(self.report(failed, [critical]).overall_status(), "CRITICAL")
 
 
 class AnalyzeTests(unittest.TestCase):
