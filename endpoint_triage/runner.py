@@ -19,18 +19,32 @@ from endpoint_triage.models import CheckResult
 
 log = logging.getLogger(__name__)
 
-# Read-only safety net: the runner refuses to execute anything not on this
-# list. Every command here is used only in a read-only way by the collectors.
-ALLOWED_COMMANDS = frozenset({
+# Read-only safety net: the runner only executes these commands, and only
+# from these fixed system locations. PATH is never searched, so a fake
+# "ping.exe" or "powershell.exe" planted in a user-writable folder (or next
+# to the tool on Windows) cannot be run in place of the real one.
+POSIX_COMMAND_PATHS = {
     # macOS
-    "sw_vers", "sysctl", "vm_stat", "ifconfig", "route", "scutil", "softwareupdate",
+    "sw_vers": ("/usr/bin/sw_vers",),
+    "sysctl": ("/usr/sbin/sysctl", "/sbin/sysctl"),
+    "vm_stat": ("/usr/bin/vm_stat",),
+    "ifconfig": ("/sbin/ifconfig",),
+    "route": ("/sbin/route",),
+    "scutil": ("/usr/sbin/scutil",),
+    "softwareupdate": ("/usr/sbin/softwareupdate",),
     # macOS + Linux
-    "df", "ping",
+    "df": ("/bin/df", "/usr/bin/df"),
+    "ping": ("/sbin/ping", "/bin/ping", "/usr/bin/ping", "/usr/sbin/ping"),
     # Linux
-    "ip", "apt", "dnf",
-    # Windows (ping is shared)
-    "powershell",
-})
+    "ip": ("/usr/sbin/ip", "/sbin/ip", "/usr/bin/ip", "/bin/ip"),
+    "apt": ("/usr/bin/apt",),
+    "dnf": ("/usr/bin/dnf",),
+}
+WINDOWS_COMMAND_PATHS = {
+    "ping": (r"System32\PING.EXE",),
+    "powershell": (r"System32\WindowsPowerShell\v1.0\powershell.exe",),
+}
+ALLOWED_COMMANDS = frozenset(POSIX_COMMAND_PATHS) | frozenset(WINDOWS_COMMAND_PATHS)
 
 DEFAULT_TIMEOUT = 15
 
@@ -56,7 +70,7 @@ class CommandResult:
     def describe_failure(self) -> str:
         name = self.args[0] if self.args else "command"
         if self.error == NOT_FOUND:
-            return f"command not found: {name}"
+            return f"command not found in trusted system locations: {name}"
         if self.error == TIMEOUT:
             return f"{name} timed out"
         if self.error == OS_ERROR:
@@ -68,6 +82,19 @@ class CommandResult:
 RunFunc = Callable[..., CommandResult]
 
 
+def resolve_executable(name: str) -> str | None:
+    """Return the trusted absolute path of an allow-listed command, or None."""
+    if os.name == "nt":
+        system_root = os.environ.get("SystemRoot", r"C:\Windows")
+        candidates = [os.path.join(system_root, p) for p in WINDOWS_COMMAND_PATHS.get(name, ())]
+    else:
+        candidates = list(POSIX_COMMAND_PATHS.get(name, ()))
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
 def run_command(args: list[str], timeout: float = DEFAULT_TIMEOUT) -> CommandResult:
     """Run a command without a shell and capture its output.
 
@@ -77,16 +104,21 @@ def run_command(args: list[str], timeout: float = DEFAULT_TIMEOUT) -> CommandRes
     if not args or args[0] not in ALLOWED_COMMANDS:
         raise ValueError(f"Refusing to run command not on the allow-list: {args[:1]}")
 
+    executable = resolve_executable(args[0])
+    if executable is None:
+        log.debug("%s not found in trusted system locations", args[0])
+        return CommandResult(args, None, error=NOT_FOUND)
+
     env = None
     if os.name != "nt":
         # Force English, C-locale output so parsers see predictable text.
         env = {**os.environ, "LC_ALL": "C"}
 
-    log.debug("Running: %s", args)
+    log.debug("Running: %s", [executable, *args[1:]])
     started = time.monotonic()
     try:
         completed = subprocess.run(
-            args,
+            [executable, *args[1:]],
             capture_output=True,
             text=True,
             encoding="utf-8",
