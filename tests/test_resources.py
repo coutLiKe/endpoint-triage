@@ -32,6 +32,8 @@ class MacOSResourceTests(unittest.TestCase):
         self.assertEqual(mounts, ["/", "/System/Volumes/Data", "/Volumes/Backup Drive"])
         data_volume = volumes[1]
         self.assertEqual(data_volume["used_bytes"], 199815616 * 1024)
+        # APFS volumes share a container, so total comes from df's size column.
+        self.assertEqual(data_volume["total_bytes"], 239362496 * 1024)
         self.assertEqual(data_volume["free_bytes"], 14863604 * 1024)
         self.assertAlmostEqual(data_volume["used_percent"], 93.1, places=1)
 

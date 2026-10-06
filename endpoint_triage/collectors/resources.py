@@ -114,9 +114,10 @@ def parse_df(text: str, os_name: str) -> list[dict]:
         parts = line.split(None, 5)
         if len(parts) != 6:
             continue
-        device, _blocks, used, available, _capacity, mount = parts
+        device, blocks, used, available, _capacity, mount = parts
         try:
-            rows.append(volume(mount, device, int(used) * 1024, int(available) * 1024))
+            rows.append(volume(mount, device, int(used) * 1024, int(available) * 1024,
+                               total=int(blocks) * 1024))
         except ValueError:
             continue  # header repeats or pseudo filesystems with odd columns
 
