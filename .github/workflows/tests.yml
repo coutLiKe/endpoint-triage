@@ -61,9 +61,9 @@ jobs:
           if-no-files-found: ignore
 
   # Simulates a locked-down corporate Windows laptop on a real Windows runner:
-  # 1. PowerShell Constrained Language Mode, as enforced by AppLocker/WDAC
-  #    (forced here with the __PSLockdownPolicy test variable).
-  # 2. A standard (non-administrator) local user.
+  # 1. A standard (non-administrator) local user.
+  # 2. An enforced AppLocker script policy, which puts PowerShell into
+  #    Constrained Language Mode, exactly as on AppLocker-managed fleets.
   # Core diagnostics must still be collected (exit code 0-2, never 3).
   windows-lockdown:
     name: windows-latest / lockdown simulation
@@ -77,25 +77,6 @@ jobs:
 
       - name: Build the single-file release
         run: python tools/build_zipapp.py
-
-      - name: Scan under Constrained Language Mode
-        shell: pwsh
-        env:
-          __PSLockdownPolicy: "4"
-        run: |
-          # Prove the policy is active for the Windows PowerShell child processes the tool starts.
-          $mode = powershell -NoProfile -Command '$ExecutionContext.SessionState.LanguageMode'
-          Write-Host "Language mode for child powershell.exe: $mode"
-          if ($mode -ne "ConstrainedLanguage") { throw "Constrained Language Mode is not active" }
-          python dist/endpoint-triage.pyz --output clm-reports
-          $code = $LASTEXITCODE
-          Get-Content clm-reports/*.txt
-          Write-Host "endpoint-triage exit code: $code"
-          if ($code -gt 2) { throw "Core diagnostics failed under Constrained Language Mode" }
-          if (-not (Select-String -Path clm-reports/*.txt -Pattern "blocked by policy" -Quiet)) {
-            throw "Expected the update check to be reported as blocked by policy"
-          }
-          exit 0  # the scan's own exit code (0-2) was checked above
 
       - name: Scan as a standard (non-admin) user
         shell: pwsh
@@ -121,6 +102,52 @@ jobs:
           Get-Content "$work\reports\*.txt"
           Write-Host "endpoint-triage exit code: $($proc.ExitCode)"
           if ($proc.ExitCode -gt 2) { throw "Core diagnostics failed for a standard user" }
+          exit 0  # the scan's own exit code (0-2) was checked above
+
+      - name: Scan under AppLocker (Constrained Language Mode)
+        shell: powershell
+        run: |
+          # Enforced script rules that only allow scripts under Windows and Program Files.
+          # PowerShell then runs everything else, including -Command, in Constrained Language Mode.
+          $policy = @"
+          <AppLockerPolicy Version="1">
+            <RuleCollection Type="Script" EnforcementMode="Enabled">
+              <FilePathRule Id="$([guid]::NewGuid())" Name="Windows" Description="" UserOrGroupSid="S-1-1-0" Action="Allow">
+                <Conditions><FilePathCondition Path="%WINDIR%\*" /></Conditions>
+              </FilePathRule>
+              <FilePathRule Id="$([guid]::NewGuid())" Name="Program Files" Description="" UserOrGroupSid="S-1-1-0" Action="Allow">
+                <Conditions><FilePathCondition Path="%PROGRAMFILES%\*" /></Conditions>
+              </FilePathRule>
+            </RuleCollection>
+          </AppLockerPolicy>
+          "@
+          $policy | Set-Content applocker.xml -Encoding UTF8
+          Set-AppLockerPolicy -XmlPolicy applocker.xml
+          sc.exe config appidsvc start= demand | Out-Null
+          Start-Service AppIDSvc
+          try {
+            $mode = ""
+            foreach ($attempt in 1..20) {
+              $mode = powershell -NoProfile -Command '$ExecutionContext.SessionState.LanguageMode'
+              if ($mode -eq "ConstrainedLanguage") { break }
+              Start-Sleep -Seconds 3
+            }
+            Write-Host "Language mode for child powershell.exe: $mode"
+            if ($mode -ne "ConstrainedLanguage") { throw "AppLocker did not enforce Constrained Language Mode" }
+
+            python dist/endpoint-triage.pyz --output clm-reports
+            $code = $LASTEXITCODE
+            Get-Content clm-reports/*.txt
+            Write-Host "endpoint-triage exit code: $code"
+            if ($code -gt 2) { throw "Core diagnostics failed under Constrained Language Mode" }
+            if (-not (Select-String -Path clm-reports/*.txt -Pattern "blocked by policy" -Quiet)) {
+              throw "Expected the update check to be reported as blocked by policy"
+            }
+          } finally {
+            # Restore an empty policy so later steps run normally.
+            '<AppLockerPolicy Version="1" />' | Set-Content empty.xml -Encoding UTF8
+            Set-AppLockerPolicy -XmlPolicy empty.xml
+          }
           exit 0
 
       - name: Upload lockdown reports
@@ -132,4 +159,3 @@ jobs:
             clm-reports/
             C:/triage-standard-user/reports/
           if-no-files-found: ignore
-
