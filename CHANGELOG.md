@@ -4,6 +4,20 @@ All notable changes are listed here. Versions follow
 [semantic versioning](https://semver.org/); the JSON report has its own
 `schema_version` (minor = additive, major = breaking).
 
+## [1.1.1] - 2026-10-06
+
+### Fixed
+- Under PowerShell Constrained Language Mode (enforced by AppLocker/WDAC on
+  managed Windows fleets) the OS and network queries failed because they
+  used `[pscustomobject]`, so the scan reported UNKNOWN. They now use plain
+  hashtables and run normally; only the Windows Update search is reported as
+  "blocked by policy".
+
+### Added
+- A Windows CI job that runs the real scan as a standard (non-admin) user and
+  under Constrained Language Mode, after verifying the mode is active. This
+  job found the bug above.
+
 ## [1.1.0] - 2026-10-06
 
 Hardening after a full design audit, focused on correctness and on what an

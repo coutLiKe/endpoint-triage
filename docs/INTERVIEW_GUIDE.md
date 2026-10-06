@@ -310,6 +310,17 @@ story in the project: *how you found and fixed problems in your own work.*
 - **SECURITY.md** lists every command and argument, every network destination,
   the personal data in reports, and a threat model.
 
+- **Lockdown testing found a bug the unit tests couldn't** (v1.1.1). A CI
+  job runs the real scan as a non-admin user and under PowerShell
+  Constrained Language Mode. Two details matter:
+  - The first attempt to force CLM silently didn't work, but the job checks
+    the language mode *before* scanning and caught it. A test that can't tell
+    whether its setup worked proves nothing.
+  - Once CLM was really active, the OS and network queries failed: they used
+    `[pscustomobject]`, which CLM forbids. On an AppLocker-managed laptop the
+    tool would have reported UNKNOWN. Unit tests mock PowerShell, so they
+    could never find this; only a real run could.
+
 **What was deliberately rejected** (and why that's a good answer)
 - `--redact`: hashing a hostname with a short unsalted hash is reversible by
   guessing names, so it would give false confidence. Honest disclosure instead.
@@ -332,7 +343,8 @@ story in the project: *how you found and fixed problems in your own work.*
 3. Why does a successful DNS lookup change how you interpret failed pings?
 4. Why didn't you add a redaction option?
 5. How does someone deploy this to 500 Windows laptops? (Python via Intune/winget, then push one `.pyz`, verify the hash, read the exit code.)
-6. What's still not validated? (A domain-joined, AppLocker-restricted Windows laptop as a standard user, and explicit-proxy networks; that honesty is in the README.)
+6. What's still not validated? (A real domain-joined laptop with a production AppLocker/WDAC policy, and explicit-proxy networks. CI simulates CLM and a standard user; the README says exactly that.)
+7. Your unit tests passed but the tool was broken under CLM. What does that teach you about mocking? (Mocks test your logic against your assumptions about the outside world; only real runs test the assumptions.)
 
 ---
 

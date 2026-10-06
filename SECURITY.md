@@ -7,7 +7,8 @@ the data that ends up in its reports, and the threats it is designed against.
 ## Summary
 
 - **Read-only.** It never changes settings, files, services or software.
-- **No privileges.** It runs as a standard user and never asks for elevation.
+- **No privileges.** It runs as a standard user and never asks for elevation
+  (verified in CI with a newly created non-administrator Windows account).
 - **No data leaves the machine.** Reports are written locally. The only
   network traffic is the connectivity tests and the OS's own update search,
   and none of it contains collected data.
@@ -140,10 +141,13 @@ Remove identifiers by hand before sharing a report outside your organization.
   above). If needed, allow-list the release by its SHA-256 hash or path.
 - **AppLocker / WDAC Constrained Language Mode** blocks COM objects, so the
   Windows Update search cannot run. The tool recognizes this and reports
-  the check as *unavailable: blocked by policy*. The other queries use
-  cmdlets that Constrained Language Mode normally allows, and the one
-  encoding setting it forbids is wrapped in `try/catch`. This has **not yet
-  been validated** on a real CLM-enforced machine.
+  the check as *unavailable: blocked by policy*. All other queries are
+  written for Constrained Language Mode (plain hashtables, no
+  `[pscustomobject]`, no method calls on non-core types, and the one
+  encoding setting it forbids is wrapped in `try/catch`). **Validated in CI**
+  on every push: a Windows job forces Constrained Language Mode machine-wide,
+  verifies it is active, and requires every other check to succeed. A real
+  domain-joined machine with a production policy has not been tested.
 - **Python itself** may be restricted by application control. In that case
   the tool cannot run at all; deploy Python through your normal software
   distribution so it is allowed.

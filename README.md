@@ -177,11 +177,16 @@ are reported as *unavailable* and the overall status is `UNKNOWN`.
 | macOS (GitHub `macos-latest`) | Real scan in CI on every push | All checks complete |
 | Windows Server 2025 (GitHub `windows-latest`) | Real scan in CI on every push | All checks complete; ICMP is blocked, reported as INFO |
 | Ubuntu 24.04 (GitHub `ubuntu-latest`) | Real scan in CI on every push | All checks complete; ICMP is blocked, reported as INFO |
+| Windows Server 2025, **standard (non-admin) user** | CI creates a local user and runs the scan as that user | All checks complete |
+| Windows Server 2025, **PowerShell Constrained Language Mode** (what AppLocker/WDAC enforce) | CI forces CLM machine-wide, verifies it is active, then scans | All checks complete except the update search, which is reported as "blocked by policy" |
 
-**Not yet validated:** a domain-joined Windows 10/11 laptop running as a
-standard user under AppLocker / WDAC, and networks that require an explicit
-proxy. The code handles the known failure modes there (see
-[SECURITY.md](SECURITY.md)), but they have not been tested on real hardware.
+The lockdown simulation found a real bug that the unit tests could not: two
+PowerShell queries used a construct that Constrained Language Mode forbids,
+so on an AppLocker-managed laptop the scan reported UNKNOWN (fixed in 1.1.1).
+
+**Not yet validated:** a real domain-joined laptop with a production
+AppLocker/WDAC policy (CI simulates the PowerShell restrictions, not a
+complete policy), and networks that require an explicit proxy.
 
 ## Example output
 
@@ -193,7 +198,7 @@ Update check that failed. The first sections look like this:
 ```text
 Endpoint Triage Report
 ======================
-Generated 2026-10-05 14:03:22 UTC by endpoint-triage 1.1.0
+Generated 2026-10-05 14:03:22 UTC by endpoint-triage 1.1.1
 Read-only scan: no system settings were changed.
 
 Summary
@@ -253,7 +258,7 @@ The JSON report contains the same data in a versioned, documented shape:
 ```json
 {
   "schema_version": "1.1",
-  "tool": { "name": "endpoint-triage", "version": "1.1.0" },
+  "tool": { "name": "endpoint-triage", "version": "1.1.1" },
   "generated_at": "2026-10-05T14:03:22+00:00",
   "duration_seconds": 7.4,
   "summary": {
@@ -588,7 +593,7 @@ Run a single test module:
 python -m unittest tests.test_network -v
 ```
 
-What the tests cover (154 tests, under a second):
+What the tests cover (156 tests, under a second):
 
 - **Parsing for each OS** using fixtures of real command output in
   [`tests/fixtures/`](tests/fixtures) (macOS `ifconfig`/`df`/`vm_stat`/`scutil`,
@@ -644,6 +649,11 @@ push and pull request:
   (Python 3.13 jobs). Exit codes 0–2 are accepted, since a CI runner may
   legitimately have findings; UNKNOWN (3) fails the build. The real reports
   are uploaded as build artifacts.
+- A **Windows lockdown job** runs the real scan as a newly created
+  non-administrator user, and again with PowerShell Constrained Language Mode
+  forced machine-wide (the mode AppLocker/WDAC policies enforce). It first
+  proves the language mode is active, then requires core diagnostics to
+  succeed and the update check to be reported as blocked by policy.
 
 [`.github/workflows/release.yml`](.github/workflows/release.yml) runs when a
 version tag such as `v1.1.0` is pushed. It runs the tests, checks that the tag
@@ -670,6 +680,8 @@ its SHA-256 checksum, and publishes a GitHub Release with the notes from
   command for IPv6, which would add complexity for little triage value.
 - **Endpoint security products** may flag or block Python starting
   PowerShell with an inline script; see [SECURITY.md](SECURITY.md).
+- **Under AppLocker/WDAC** (Constrained Language Mode) the Windows Update
+  search cannot run; the report says "blocked by policy". All other checks work.
 - **macOS available memory** is an approximation (free + inactive +
   speculative pages); Activity Monitor uses a more complex formula.
 - **Mounted disk images** (DMG/ISO) on macOS/Linux may appear as nearly full
