@@ -139,6 +139,10 @@ class ConnectivityClassificationTests(unittest.TestCase):
         self.assertIn((Severity.WARNING, "Local network or gateway unreachable"), found)
         self.assertIn((Severity.INFO, "DNS resolution also failed"), found)
 
+    def test_both_pings_fail_but_dns_works_suggests_icmp_blocked(self):
+        # Seen on GitHub's Azure-hosted runners, which drop ICMP.
+        self.assertEqual(self.classify(False, False, True), [(Severity.INFO, "Ping appears to be blocked")])
+
     def test_internet_failure(self):
         self.assertEqual(self.classify(True, False, False),
                          [(Severity.WARNING, "Public IP address unreachable"),

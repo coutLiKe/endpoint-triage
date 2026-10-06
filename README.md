@@ -246,6 +246,7 @@ All thresholds are constants at the top of
 | Gateway and public IP both unreachable | WARNING | Likely local network problem |
 | Gateway OK, public IP unreachable | WARNING | Likely problem beyond the local network |
 | Gateway ignores ping, internet works | INFO | Many routers drop ping, so this is usually harmless |
+| Both pings fail, DNS works | INFO | Ping is probably filtered (common on corporate/cloud networks) |
 | Public IP reachable, DNS fails | WARNING | Likely DNS configuration or server problem |
 | DNS fails while internet is down | INFO | Expected consequence; retest later |
 | Pending OS updates | INFO | ≥ 1 pending update |
@@ -264,6 +265,7 @@ normal.
 | ✅ | ❌ | ❌ | **Internet / upstream** (ISP, firewall) |
 | ✅ | ✅ | ❌ | **DNS** (wrong or unreachable DNS server) |
 | ❌ | ✅ | ✅ | Gateway ignores ping; internet works (INFO only) |
+| ❌ | ❌ | ✅ | Ping is probably blocked; DNS answers prove traffic flows (INFO only) |
 
 ## Exit codes
 
@@ -401,8 +403,10 @@ Notable differences the code handles:
   "Destination host unreachable", so on Windows a reply must also contain
   `TTL=` to count as success.
 - **APFS on macOS.** The root and Data volumes share one container (and free
-  space). System-only APFS volumes (`/System/Volumes/VM`, `Preboot`, ...) are
-  hidden; `/` and `/System/Volumes/Data` are shown.
+  space). Only `/`, `/System/Volumes/Data` and drives under `/Volumes/` are
+  shown. System volumes (`VM`, `Preboot`, ...) and read-only images such as
+  cryptexes, Siri/asset images and simulator runtimes always look 100% full and
+  would cause false CRITICAL findings.
 - **Linux pseudo filesystems** (`tmpfs`, snap `loop` devices, `overlay`) are
   filtered out of the disk list. Inside a container the tool falls back to `/`.
 - **systemd-resolved.** If `/etc/resolv.conf` only lists `127.0.0.53`, the
@@ -489,7 +493,7 @@ Run a single test module:
 python -m unittest tests.test_network -v
 ```
 
-What the tests cover (133 tests, under a second):
+What the tests cover (134 tests, under a second):
 
 - **Parsing for each OS** using fixtures of real command output in
   [`tests/fixtures/`](tests/fixtures) (macOS `ifconfig`/`df`/`vm_stat`/`scutil`,

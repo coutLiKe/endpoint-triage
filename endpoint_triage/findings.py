@@ -188,7 +188,14 @@ def connectivity_findings(gateway: CheckResult | None, gateway_ping: CheckResult
             "means the device is not connected or did not receive a full DHCP configuration.",
             ["Default gateway: none"]))
 
-    if gateway_failed and public_failed:
+    if gateway_failed and public_failed and _ok(dns):
+        findings.append(Finding(
+            Severity.INFO, "Ping appears to be blocked",
+            "Neither the gateway nor a public IP address answered ping, but DNS resolution worked. "
+            "Because DNS answers had to travel over the network, ping (ICMP) is most likely being "
+            "filtered, which is common on corporate and cloud networks. If the user still reports "
+            "problems, note that a DNS answer can come from a local cache.", evidence))
+    elif gateway_failed and public_failed:
         findings.append(Finding(
             Severity.WARNING, "Local network or gateway unreachable",
             "Neither the default gateway nor a public IP address responded. The problem is likely on "
