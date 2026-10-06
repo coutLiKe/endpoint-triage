@@ -26,7 +26,7 @@ WINDOWS_UPDATE_SCRIPT = (
     "$session = New-Object -ComObject Microsoft.Update.Session; "
     "$result = $session.CreateUpdateSearcher().Search('IsInstalled=0 and IsHidden=0'); "
     "ConvertTo-Json -Compress -InputObject @($result.Updates | ForEach-Object { "
-    "[pscustomobject]@{ Title = $_.Title; RebootRequired = $_.RebootRequired } })"
+    "@{ Title = $_.Title; RebootRequired = $_.RebootRequired } })"
 )
 
 

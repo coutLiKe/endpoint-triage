@@ -136,5 +136,19 @@ class RunPowershellTests(unittest.TestCase):
         self.assertIn("try { [Console]::OutputEncoding", args[-1])
 
 
+
+class ConstrainedLanguageModeTests(unittest.TestCase):
+    """Windows scripts must run under PowerShell Constrained Language Mode, which
+    AppLocker/WDAC enforce on managed fleets. CI verifies this on a real Windows
+    runner; this test catches the known-incompatible constructs early."""
+
+    def test_windows_scripts_avoid_constructs_blocked_by_clm(self):
+        from endpoint_triage.collectors import network, resources, system, updates
+        scripts = [system.WINDOWS_OS_SCRIPT, resources.WINDOWS_MEMORY_SCRIPT, resources.WINDOWS_DISKS_SCRIPT,
+                   network.WINDOWS_NETWORK_SCRIPT, updates.WINDOWS_UPDATE_SCRIPT]
+        for script in scripts:
+            self.assertNotIn("[pscustomobject]", script.lower())
+            self.assertNotIn("Add-Type", script)
+
 if __name__ == "__main__":
     unittest.main()

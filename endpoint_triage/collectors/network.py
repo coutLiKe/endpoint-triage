@@ -29,14 +29,17 @@ SKIPPED_PREFIXES = {
 # Windows placeholder DNS addresses used when no IPv6 DNS is configured.
 WINDOWS_PLACEHOLDER_DNS = ("fec0:0:0:ffff::",)
 
+# Constrained Language Mode compatible: plain hashtables instead of
+# [pscustomobject], and [string] casts instead of method calls on
+# non-core types (CLM only allows methods on core .NET types).
 WINDOWS_NETWORK_SCRIPT = (
     "$adapters = @(Get-NetAdapter | Select-Object Name, Status, MacAddress, ifIndex); "
     "$addresses = @(Get-NetIPAddress | Select-Object InterfaceIndex, IPAddress, PrefixLength, "
-    "@{n='Family';e={$_.AddressFamily.ToString()}}); "
+    "@{n='Family';e={[string]$_.AddressFamily}}); "
     "$routes = @(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | "
     "Select-Object NextHop, InterfaceIndex, RouteMetric); "
     "$dns = @(Get-DnsClientServerAddress | Select-Object InterfaceIndex, ServerAddresses); "
-    "[pscustomobject]@{ adapters = $adapters; addresses = $addresses; routes = $routes; dns = $dns } "
+    "@{ adapters = $adapters; addresses = $addresses; routes = $routes; dns = $dns } "
     "| ConvertTo-Json -Depth 4 -Compress"
 )
 

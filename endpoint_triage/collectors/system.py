@@ -22,10 +22,12 @@ OS_ID, OS_TITLE = "system.os", "Operating system"
 UPTIME_ID, UPTIME_TITLE = "system.uptime", "Uptime and last reboot"
 
 # One CIM query gives Windows OS version and boot time. Dates are formatted
-# in PowerShell so Python receives a predictable string.
+# in PowerShell so Python receives a predictable string. Results are built as
+# plain hashtables because Constrained Language Mode (AppLocker/WDAC) forbids
+# [pscustomobject] casts.
 WINDOWS_OS_SCRIPT = (
     "$os = Get-CimInstance -ClassName Win32_OperatingSystem; "
-    "[pscustomobject]@{ "
+    "@{ "
     "Caption = $os.Caption; Version = $os.Version; BuildNumber = $os.BuildNumber; "
     "LastBootUpTime = $os.LastBootUpTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss') "
     "} | ConvertTo-Json -Compress"
