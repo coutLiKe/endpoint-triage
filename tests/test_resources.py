@@ -27,8 +27,8 @@ class MacOSResourceTests(unittest.TestCase):
 
         volumes = checks["resources.disks"].data["volumes"]
         mounts = [v["mount"] for v in volumes]
-        # Hidden APFS system volumes, devfs and autofs maps are filtered out;
-        # mount points with spaces survive.
+        # APFS system volumes, read-only asset/simulator images, devfs and
+        # autofs maps are filtered out; mount points with spaces survive.
         self.assertEqual(mounts, ["/", "/System/Volumes/Data", "/Volumes/Backup Drive"])
         data_volume = volumes[1]
         self.assertEqual(data_volume["used_bytes"], 199815616 * 1024)

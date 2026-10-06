@@ -30,10 +30,12 @@ WINDOWS_DISKS_SCRIPT = (
     "Select-Object DeviceID, FileSystem, Size, FreeSpace)"
 )
 
-# macOS mounts several APFS system volumes that share one container; only
-# the root and Data volumes are meaningful to a technician.
-MACOS_HIDDEN_PREFIXES = ("/System/Volumes/", "/Library/Developer/CoreSimulator/")
+# macOS mounts many APFS system volumes and read-only images (Preboot, VM,
+# cryptexes, Siri/asset images, simulator runtimes) that are not useful to a
+# technician and often look 100% full. Keep the root and Data volumes plus
+# user-visible drives under /Volumes/.
 MACOS_KEPT_MOUNTS = ("/", "/System/Volumes/Data")
+MACOS_KEPT_PREFIX = "/Volumes/"
 
 
 def collect(os_name: str, run: RunFunc = run_command, read_file=read_text_file) -> list[CheckResult]:
@@ -131,8 +133,8 @@ def parse_df(text: str, os_name: str) -> list[dict]:
 def _is_real_volume(device: str, mount: str, os_name: str) -> bool:
     if not device.startswith("/dev/") or device.startswith("/dev/loop"):
         return False  # tmpfs, devfs, autofs maps, snap squashfs loop devices
-    if os_name == "Darwin" and mount not in MACOS_KEPT_MOUNTS:
-        return not mount.startswith(MACOS_HIDDEN_PREFIXES)
+    if os_name == "Darwin":
+        return mount in MACOS_KEPT_MOUNTS or mount.startswith(MACOS_KEPT_PREFIX)
     return True
 
 

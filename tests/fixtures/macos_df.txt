@@ -10,3 +10,5 @@ devfs                  201       201         0   100%    /dev
 /dev/disk3s5     239362496 199815616  14863604    94%    /System/Volumes/Data
 map auto_home            0         0         0   100%    /System/Volumes/Data/home
 /dev/disk5s1      61202432  30601216  30601216    50%    /Volumes/Backup Drive
+/dev/disk7s1          9216      9216         0   100%    /System/Library/AssetsV2/com_apple_MobileAsset_UAF/purpose_auto/abc123.asset/.AssetData
+/dev/disk9s1      16777216  16000000    777216    96%    /Library/Developer/CoreSimulator/Volumes/iOS_23A343
