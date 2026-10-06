@@ -1,5 +1,7 @@
 # Endpoint Triage
 
+[![Tests](https://github.com/coutLiKe/endpoint-triage/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/coutLiKe/endpoint-triage/actions/workflows/tests.yml)
+
 A cross-platform, **read-only** command-line tool that a help desk technician
 runs with one command to collect common endpoint diagnostics and produce a
 report that can be attached to a support ticket.
