@@ -30,6 +30,31 @@ WINDOWS_UPDATE_SCRIPT = (
 )
 
 
+# Common Windows Update Agent error codes, mapped to a hint a technician can
+# act on. Codes are matched case-insensitively anywhere in the error output.
+WINDOWS_UPDATE_HINTS = {
+    "0x8024402c": "the update server name could not be resolved; check proxy settings and the WSUS server URL",
+    "0x8024401c": "the request to the update server timed out",
+    "0x80244022": "the update server is unavailable (HTTP 503)",
+    "0x8024002e": "policy blocks contacting Microsoft directly; updates are managed by WSUS or Intune",
+    "0x80072ee2": "the connection to the update server timed out",
+    "0x80072efd": "could not connect to the update server; check the network and any required proxy",
+    "0x80240438": "there is no route to the update service; check the proxy and firewall",
+}
+
+# PowerShell Constrained Language Mode (enforced by AppLocker/WDAC policies)
+# blocks New-Object -ComObject, which the Windows Update search needs.
+CONSTRAINED_LANGUAGE_MARKER = "only core types are supported in this language mode"
+
+
+def windows_update_hint(output: str) -> str | None:
+    lowered = output.lower()
+    for code, hint in WINDOWS_UPDATE_HINTS.items():
+        if code in lowered:
+            return f"{code.upper().replace('0X', '0x')}: {hint}"
+    return None
+
+
 def collect(os_name: str, run: RunFunc = run_command) -> list[CheckResult]:
     if os_name == "Darwin":
         return [_macos(run)]
@@ -98,7 +123,17 @@ def _macos(run: RunFunc) -> CheckResult:
 def _windows(run: RunFunc) -> CheckResult:
     result = run_powershell(WINDOWS_UPDATE_SCRIPT, run=run, timeout=UPDATE_TIMEOUT)
     if not result.ok:
-        return command_failure(UPDATES_ID, UPDATES_TITLE, result)
+        output = result.stdout + result.stderr
+        if CONSTRAINED_LANGUAGE_MARKER in output.lower():
+            return CheckResult.unavailable(
+                UPDATES_ID, UPDATES_TITLE,
+                "blocked by policy: PowerShell Constrained Language Mode (AppLocker/WDAC) prevents the "
+                "Windows Update search", debug=output)
+        check = command_failure(UPDATES_ID, UPDATES_TITLE, result)
+        hint = windows_update_hint(output)
+        if hint:
+            check.error = f"{check.error} (hint: {hint})"
+        return check
     try:
         items = json.loads(result.stdout) if result.stdout.strip() else []
         if isinstance(items, dict):

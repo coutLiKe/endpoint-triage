@@ -68,11 +68,23 @@ class WindowsUpdateTests(unittest.TestCase):
         check = run_updates("Windows", **{"Microsoft.Update.Session": ok("[]")})
         self.assertEqual(check.data["pending_count"], 0)
 
-    def test_com_error(self):
+    def test_com_error_gets_a_plain_english_hint(self):
         check = run_updates("Windows", **{"Microsoft.Update.Session": fail(
             stderr="Exception from HRESULT: 0x8024402C")})
         self.assertEqual(check.status, Status.FAILED)
         self.assertIn("0x8024402C", check.error)
+        self.assertIn("hint: 0x8024402C: the update server name could not be resolved", check.error)
+
+    def test_unknown_error_code_has_no_hint(self):
+        check = run_updates("Windows", **{"Microsoft.Update.Session": fail(stderr="Exception from HRESULT: 0x80070005")})
+        self.assertNotIn("hint:", check.error)
+
+    def test_constrained_language_mode_is_reported_as_blocked_by_policy(self):
+        check = run_updates("Windows", **{"Microsoft.Update.Session": fail(stderr=(
+            "New-Object : Cannot create type. Only core types are supported in this language mode."))})
+        self.assertEqual(check.status, Status.UNAVAILABLE)
+        self.assertIn("blocked by policy", check.error)
+        self.assertIn("Constrained Language Mode", check.error)
 
     def test_malformed_json(self):
         self.assertEqual(run_updates("Windows", **{"Microsoft.Update.Session": ok("[{]")}).status, Status.FAILED)
