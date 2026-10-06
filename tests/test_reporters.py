@@ -35,7 +35,7 @@ class TextReportTests(unittest.TestCase):
     def test_summary(self):
         self.assertIn("Hostname          : HD-LAPTOP-042.corp.local", self.text)
         self.assertIn("Overall status    : CRITICAL", self.text)
-        self.assertIn("1 critical, 1 warning, 2 info", self.text)
+        self.assertIn("1 critical, 1 warning, 1 info", self.text)
 
     def test_findings_have_severity_title_explanation_evidence(self):
         self.assertIn("[CRITICAL] Critically low disk space on C:", self.text)
@@ -52,7 +52,12 @@ class TextReportTests(unittest.TestCase):
         self.assertIn("[FAILED]      Resolve public hostname (example.com): DNS lookup", self.text)
 
     def test_errors_section_and_debug_detail(self):
-        self.assertIn("[FAILED] updates.os: powershell exited with code 1", self.text)
+        self.assertIn("[FAILED] Pending OS updates (updates.os): powershell exited with code 1", self.text)
+        # Each incomplete check is described once; the section only points to it.
+        self.assertEqual(self.text.count("Exception from HRESULT"), 1)
+        self.assertIn("Pending OS updates: not completed (failed), see Errors / Unavailable Checks", self.text)
+        # A failed DNS lookup is a test result, shown with the connectivity results, not as an error.
+        self.assertNotIn("(connectivity.dns_resolution)", self.text)
         self.assertIn("Run with --debug", self.text)
         self.assertNotIn("returncode: 1", self.text)
         debug_text = reporters.render_text(self.report, debug=True)
@@ -81,7 +86,7 @@ class JsonReportTests(unittest.TestCase):
     def test_summary(self):
         summary = self.data["summary"]
         self.assertEqual(summary["overall_status"], "CRITICAL")
-        self.assertEqual(summary["finding_counts"], {"CRITICAL": 1, "WARNING": 1, "INFO": 2})
+        self.assertEqual(summary["finding_counts"], {"CRITICAL": 1, "WARNING": 1, "INFO": 1})
         self.assertEqual(summary["check_counts"], {"ok": 9, "failed": 2, "unavailable": 0, "skipped": 0})
 
     def test_findings_shape(self):

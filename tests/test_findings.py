@@ -168,10 +168,10 @@ class ConnectivityClassificationTests(unittest.TestCase):
         self.assertIn((Severity.WARNING, "No default gateway"), found)
         self.assertIn((Severity.WARNING, "Public IP address unreachable"), found)
 
-    def test_ping_unavailable_is_info(self):
+    def test_ping_unavailable_is_not_a_finding(self):
+        # A test that could not run is listed under Errors / Unavailable Checks, not as a finding.
         missing = CheckResult.unavailable("connectivity.public_ip_ping", "Ping public IP address", "ping command not found")
-        found = titles(findings.connectivity_findings(GATEWAY, gw_ping(True), missing, dns(True)))
-        self.assertEqual(found, [(Severity.INFO, "Unable to run test: Ping public IP address")])
+        self.assertEqual(findings.connectivity_findings(GATEWAY, gw_ping(True), missing, dns(True)), [])
 
 
 class OverallStatusTests(unittest.TestCase):
@@ -204,14 +204,16 @@ class AnalyzeTests(unittest.TestCase):
     def report(self, **sections):
         return Report("1.0.0", "Linux", datetime(2026, 10, 5, tzinfo=timezone.utc), 1.0, sections)
 
-    def test_sorted_by_severity_and_undetermined_checks_reported(self):
+    def test_sorted_by_severity_and_incomplete_checks_are_not_findings(self):
+        uptime = CheckResult.ok("system.uptime", "Uptime", {"uptime_seconds": 40 * 86400, "last_boot": "x"})
         report = self.report(
-            resources=[disks(disk("/", 96, 4), disk("/data", 86, 14))],
+            system=[uptime],
+            resources=[disks(disk("/data", 86, 14), disk("/", 96, 4))],
             updates=[CheckResult.unavailable("updates.os", "Pending OS updates", "no supported package manager")],
         )
         found = findings.analyze(report)
         self.assertEqual([f.severity for f in found], [Severity.CRITICAL, Severity.WARNING, Severity.INFO])
-        self.assertEqual(found[-1].title, "Unable to determine: Pending OS updates")
+        self.assertEqual([f.id for f in found], ["disk.critical_low_space", "disk.high_usage", "system.long_uptime"])
 
     def test_pending_updates_info(self):
         check = CheckResult.ok("updates.os", "Pending OS updates", {

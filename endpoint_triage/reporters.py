@@ -197,11 +197,24 @@ RENDERERS: dict[str, Callable[[CheckResult], list[str]]] = {
 }
 
 
+def is_test_result(check: CheckResult) -> bool:
+    """A failed ping or DNS lookup is a result ("no reply"), not a check that
+    could not run, so it belongs with the other connectivity results."""
+    return check.id.startswith("connectivity.") and check.status == Status.FAILED
+
+
+def checks_not_completed(report: Report) -> list[CheckResult]:
+    return [c for c in report.all_checks() if c.status != Status.OK and not is_test_result(c)]
+
+
 def _render_check(check: CheckResult) -> list[str]:
-    if check.status != Status.OK:
+    if check.id.startswith("connectivity.") and check.status != Status.OK:
         target = check.data.get("target") or check.data.get("hostname")
         label = f"{check.title} ({target})" if target else check.title
         return [f"  [{check.status.value.upper()}]{' ' * (12 - len(check.status.value))}{label}: {check.error}"]
+    if check.status != Status.OK:
+        # Details appear once, under Errors / Unavailable Checks.
+        return [_line(check.title, f"not completed ({check.status.value}), see Errors / Unavailable Checks")]
     renderer = RENDERERS.get(check.id)
     if renderer is None:  # fallback for any future check without a custom layout
         return [_line(key, value) for key, value in check.data.items()]
@@ -268,11 +281,11 @@ def render_text(report: Report, debug: bool = False) -> str:
             lines += _render_check(check)
 
     lines += _heading("Errors / Unavailable Checks")
-    problems = [c for c in report.all_checks() if c.status != Status.OK]
+    problems = checks_not_completed(report)
     if not problems:
         lines.append("  None. All checks completed.")
     for check in problems:
-        lines.append(f"  [{check.status.value.upper()}] {check.id}: {check.error}")
+        lines.append(f"  [{check.status.value.upper()}] {check.title} ({check.id}): {check.error}")
         if debug and check.debug:
             lines += [f"      | {line}" for line in check.debug.strip().splitlines()]
     if problems and not debug:

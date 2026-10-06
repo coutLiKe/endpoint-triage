@@ -1,7 +1,10 @@
 """Turn raw check results into troubleshooting signals ("findings").
 
 Findings point a technician at likely problems. They describe what the
-evidence suggests; they never claim to prove a root cause.
+evidence suggests; they never claim to prove a root cause. Checks that
+could not run are not findings: reporters list them once under
+"Errors / Unavailable Checks", and missing core checks make the overall
+status UNKNOWN (see Report.overall_status).
 """
 
 from __future__ import annotations
@@ -36,7 +39,6 @@ def analyze(report: Report) -> list[Finding]:
         report.get("connectivity.dns_resolution"),
     )
     findings += update_findings(report.get("updates.os"))
-    findings += undetermined_findings(report)
     # Most severe first; sorted() is stable so equal severities keep their order.
     return sorted(findings, key=lambda f: f.severity.rank, reverse=True)
 
@@ -231,13 +233,6 @@ def connectivity_findings(gateway: CheckResult | None, gateway_ping: CheckResult
                             "configuration or DNS server issue." if public_ok else
                             ". Check the configured DNS servers.")
             findings.append(Finding("connectivity.dns_failed", Severity.WARNING, "DNS resolution failed", explanation, evidence))
-
-    for check in (gateway_ping, public_ping):
-        if check is not None and check.status == Status.UNAVAILABLE:
-            findings.append(Finding(
-                "connectivity.test_unavailable", Severity.INFO, f"Unable to run test: {check.title}",
-                "This connectivity test could not run on this system, so this part of the network "
-                "path was not verified.", [check.error or "unknown reason"]))
     return findings
 
 
@@ -257,22 +252,3 @@ def update_findings(check: CheckResult | None) -> list[Finding]:
         "updates.pending", Severity.INFO, "Operating system updates are pending",
         "Pending updates may include security or bug fixes relevant to the reported issue. "
         "Install them according to your organization's patching process.", evidence)]
-
-
-# ---------------------------------------------------------- undetermined
-
-def undetermined_findings(report: Report) -> list[Finding]:
-    """One INFO finding per non-connectivity check that could not be completed.
-
-    Connectivity checks are handled by connectivity_findings, which gives a
-    more specific explanation.
-    """
-    findings = []
-    for check in report.all_checks():
-        if check.id.startswith("connectivity.") or check.status not in (Status.FAILED, Status.UNAVAILABLE):
-            continue
-        findings.append(Finding(
-            "check.undetermined", Severity.INFO, f"Unable to determine: {check.title}",
-            "This diagnostic could not be collected. See Errors / Unavailable Checks for details.",
-            [f"{check.status.value}: {check.error}"]))
-    return findings
