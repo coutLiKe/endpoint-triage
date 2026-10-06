@@ -132,6 +132,8 @@ class RunPowershellTests(unittest.TestCase):
         self.assertIn("-NoProfile", args)
         self.assertIn("-NonInteractive", args)
         self.assertTrue(args[-1].endswith("Get-Thing"))
+        # Must not fail under Constrained Language Mode, which blocks setting [Console] properties.
+        self.assertIn("try { [Console]::OutputEncoding", args[-1])
 
 
 if __name__ == "__main__":

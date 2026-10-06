@@ -143,8 +143,10 @@ def run_command(args: list[str], timeout: float = DEFAULT_TIMEOUT) -> CommandRes
 
 def run_powershell(script: str, run: RunFunc = run_command, timeout: float = 30) -> CommandResult:
     """Run a PowerShell snippet. Scripts are expected to print JSON."""
+    # The encoding line is wrapped in try/catch because Constrained Language
+    # Mode (AppLocker/WDAC) forbids setting it; the scripts still work without it.
     prelude = (
-        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+        "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }; "
         "$ProgressPreference = 'SilentlyContinue'; "
         "$ErrorActionPreference = 'Stop'; "
     )
