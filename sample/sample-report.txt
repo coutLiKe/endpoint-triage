@@ -1,0 +1,89 @@
+Endpoint Triage Report
+======================
+Generated 2026-10-05 14:03:22 UTC by endpoint-triage 1.0.0
+Read-only scan: no system settings were changed.
+
+Summary
+-------
+  Hostname          : HD-LAPTOP-042.corp.local
+  Operating system  : Microsoft Windows 11 Pro
+  Overall status    : CRITICAL
+  Findings          : 1 critical, 1 warning, 2 info
+  Checks            : 9 ok, 2 failed, 0 unavailable, 0 skipped
+  Scan duration     : 7.4 s
+
+Findings
+--------
+[CRITICAL] Critically low disk space on C:
+  C: is at or above 95% used or has less than 5.0 GB free. Very low free
+  space can cause failed updates, application crashes and slow performance.
+  Evidence:
+    - Volume C: is 96.4% used, 17.0 GB free of 476.0 GB
+
+[WARNING] DNS resolution failed
+  DNS resolution failed for example.com, but the public IP connectivity test
+  succeeded. This may indicate a DNS configuration or DNS server issue.
+  Evidence:
+    - Ping 192.168.1.1: reply (3.0 ms)
+    - Ping 1.1.1.1: reply (15.0 ms)
+    - Resolve example.com: failed (DNS lookup for example.com timed out after 5s)
+
+[INFO] System has not been restarted recently
+  The system has been running for more than 30 days. Pending updates and
+  long-running resource leaks are often resolved by a restart.
+  Evidence:
+    - Uptime: 38 days (last boot 2026-08-28T07:48:00+00:00)
+
+[INFO] Unable to determine: Pending OS updates
+  This diagnostic could not be collected. See Errors / Unavailable Checks
+  for details.
+  Evidence:
+    - failed: powershell exited with code 1: Exception from HRESULT: 0x8024402C
+
+System Information
+------------------
+  Hostname          : HD-LAPTOP-042.corp.local
+  Operating system  : Microsoft Windows 11 Pro
+  Version           : 10.0.26100 (build 26100)
+  Architecture      : AMD64
+  Kernel            : 10.0.26100
+  Uptime            : 38 days, 5 hours, 12 minutes
+  Last reboot       : 2026-08-28 07:48:00 UTC
+
+Resource Usage
+--------------
+  Memory            : 11.0 GB used of 16.0 GB (68.8%), 5.0 GB available
+  Disk volumes:
+    Mount       Total        Used        Free  Used %
+    C:       476.0 GB    459.0 GB     17.0 GB   96.4%
+    D:       931.0 GB    410.0 GB    521.0 GB   44.0%
+
+Network Configuration
+---------------------
+  Wi-Fi (up)
+    MAC               : a4:83:e7:12:34:56
+    IPv4              : 192.168.1.57/24
+    IPv6              : fe80::1c2b:3d4e:5f60:7182/64
+  Ethernet (down)
+    MAC               : 00:1a:2b:3c:4d:5e
+    IPv4              : none
+    IPv6              : none
+  Default gateway   : 192.168.1.1 (via Wi-Fi)
+  DNS servers       : 192.168.1.1
+
+Connectivity Tests
+------------------
+  [OK]          Ping default gateway (192.168.1.1): reply, avg 3.0 ms
+  [OK]          Ping public IP address (1.1.1.1): reply, avg 15.0 ms
+  [FAILED]      Resolve public hostname (example.com): DNS lookup for example.com timed out after 5s
+
+Operating System Updates
+------------------------
+  [FAILED]      Pending OS updates: powershell exited with code 1: Exception from HRESULT: 0x8024402C
+
+Errors / Unavailable Checks
+---------------------------
+  [FAILED] connectivity.dns_resolution: DNS lookup for example.com timed out after 5s
+  [FAILED] updates.os: powershell exited with code 1: Exception from HRESULT: 0x8024402C
+
+  Run with --debug for more troubleshooting detail.
