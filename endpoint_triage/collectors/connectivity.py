@@ -9,14 +9,19 @@ from __future__ import annotations
 
 import re
 import socket
+import threading
+import time
 
 from endpoint_triage.models import CheckResult, Status
 from endpoint_triage.runner import NOT_FOUND, RunFunc, run_command
 
 GATEWAY_PING_ID, GATEWAY_PING_TITLE = "connectivity.gateway_ping", "Ping default gateway"
 PUBLIC_PING_ID, PUBLIC_PING_TITLE = "connectivity.public_ip_ping", "Ping public IP address"
+DNS_ID, DNS_TITLE = "connectivity.dns_resolution", "Resolve public hostname"
 
 PUBLIC_IP_TARGET = "1.1.1.1"
+DNS_TEST_HOSTNAME = "example.com"
+DNS_TIMEOUT = 5.0  # seconds
 PING_COUNT = 2
 PING_TIMEOUT = 15  # seconds for the whole ping command
 
@@ -26,6 +31,7 @@ def collect(os_name: str, gateway_check: CheckResult | None, run: RunFunc = run_
     return [
         _gateway_ping(os_name, gateway_check, run),
         ping(PUBLIC_PING_ID, PUBLIC_PING_TITLE, os_name, PUBLIC_IP_TARGET, run),
+        check_dns_resolution(DNS_TEST_HOSTNAME, resolver=resolver),
     ]
 
 
@@ -83,3 +89,48 @@ def _gateway_ping(os_name: str, gateway_check: CheckResult | None, run: RunFunc)
     if not gateway:
         return CheckResult.skipped(GATEWAY_PING_ID, GATEWAY_PING_TITLE, "no default gateway configured")
     return ping(GATEWAY_PING_ID, GATEWAY_PING_TITLE, os_name, gateway, run)
+
+
+def check_dns_resolution(hostname: str = DNS_TEST_HOSTNAME, resolver=socket.getaddrinfo,
+                         timeout: float = DNS_TIMEOUT) -> CheckResult:
+    """Resolve `hostname` with the operating system's resolver.
+
+    getaddrinfo() has no timeout parameter and can block for a long time when
+    DNS servers do not answer, so the lookup runs in a daemon thread and we
+    stop waiting after `timeout` seconds. A daemon thread will not keep the
+    program alive if the lookup is still stuck when the tool exits.
+    """
+    outcome: dict = {}
+
+    def lookup():
+        try:
+            outcome["infos"] = resolver(hostname, None)
+        except Exception as exc:  # handed back to the main thread below
+            outcome["error"] = exc
+
+    started = time.monotonic()
+    worker = threading.Thread(target=lookup, name="dns-lookup", daemon=True)
+    worker.start()
+    worker.join(timeout)
+    duration_ms = round((time.monotonic() - started) * 1000, 1)
+    data = {"hostname": hostname, "addresses": [], "duration_ms": duration_ms}
+
+    if worker.is_alive():
+        return CheckResult.failed(DNS_ID, DNS_TITLE, f"DNS lookup for {hostname} timed out after {timeout:g}s",
+                                  data=data)
+    error = outcome.get("error")
+    if isinstance(error, socket.gaierror):
+        reason = error.strerror or str(error)
+        return CheckResult.failed(DNS_ID, DNS_TITLE, f"DNS lookup for {hostname} failed: {reason}",
+                                  debug=repr(error), data=data)
+    if error is not None:
+        return CheckResult.failed(DNS_ID, DNS_TITLE, f"DNS lookup for {hostname} failed: {error}",
+                                  debug=repr(error), data=data)
+
+    # Each getaddrinfo entry is (family, type, proto, canonname, sockaddr);
+    # sockaddr[0] is the IP address. Entries repeat per socket type.
+    addresses = sorted({info[4][0] for info in outcome.get("infos") or []})
+    if not addresses:
+        return CheckResult.failed(DNS_ID, DNS_TITLE, f"DNS lookup for {hostname} returned no addresses", data=data)
+    data["addresses"] = addresses
+    return CheckResult.ok(DNS_ID, DNS_TITLE, data)

@@ -46,6 +46,16 @@ LINUX_PING_LOSS = """PING 1.1.1.1 (1.1.1.1) 56(84) bytes of data.
 GATEWAY = CheckResult.ok("network.gateway", "Default gateway", {"gateway": "10.0.0.1", "interface": "eth0"})
 
 
+def fake_resolver(host, port):
+    return [(2, 1, 6, "", ("93.184.215.14", 0))]
+
+
+def collect(*args, **kwargs):
+    """connectivity.collect with a fake DNS resolver so tests never hit the network."""
+    kwargs.setdefault("resolver", fake_resolver)
+    return connectivity.collect(*args, **kwargs)
+
+
 def by_id(checks):
     return {c.id: c for c in checks}
 
@@ -66,7 +76,7 @@ class PingCommandTests(unittest.TestCase):
 class PingTests(unittest.TestCase):
     def test_both_pings_succeed(self):
         runner = FakeRunner({"10.0.0.1": ok(LINUX_PING_OK), "1.1.1.1": ok(MAC_PING_OK)})
-        checks = by_id(connectivity.collect("Linux", GATEWAY, run=runner))
+        checks = by_id(collect("Linux", GATEWAY, run=runner))
         gateway = checks["connectivity.gateway_ping"]
         self.assertEqual(gateway.status, Status.OK)
         self.assertEqual(gateway.data, {"target": "10.0.0.1", "reachable": True, "latency_ms": 0.405})
@@ -74,30 +84,30 @@ class PingTests(unittest.TestCase):
 
     def test_no_reply_is_failed(self):
         runner = FakeRunner({"10.0.0.1": ok(LINUX_PING_OK), "1.1.1.1": fail(returncode=1, stderr="", stdout=LINUX_PING_LOSS)})
-        public = by_id(connectivity.collect("Linux", GATEWAY, run=runner))["connectivity.public_ip_ping"]
+        public = by_id(collect("Linux", GATEWAY, run=runner))["connectivity.public_ip_ping"]
         self.assertEqual(public.status, Status.FAILED)
         self.assertFalse(public.data["reachable"])
         self.assertEqual(public.error, "no reply from 1.1.1.1")
 
     def test_windows_destination_unreachable_with_exit_zero_is_failure(self):
         runner = FakeRunner({"1.1.1.1": ok(WINDOWS_PING_UNREACHABLE)})
-        public = by_id(connectivity.collect("Windows", None, run=runner))["connectivity.public_ip_ping"]
+        public = by_id(collect("Windows", None, run=runner))["connectivity.public_ip_ping"]
         self.assertEqual(public.status, Status.FAILED)
 
     def test_windows_success(self):
         runner = FakeRunner({"1.1.1.1": ok(WINDOWS_PING_OK)})
-        public = by_id(connectivity.collect("Windows", None, run=runner))["connectivity.public_ip_ping"]
+        public = by_id(collect("Windows", None, run=runner))["connectivity.public_ip_ping"]
         self.assertEqual(public.status, Status.OK)
         self.assertEqual(public.data["latency_ms"], 15.0)
 
     def test_ping_missing_is_unavailable(self):
-        checks = by_id(connectivity.collect("Linux", GATEWAY, run=FakeRunner({"ping": not_found()})))
+        checks = by_id(collect("Linux", GATEWAY, run=FakeRunner({"ping": not_found()})))
         self.assertEqual(checks["connectivity.gateway_ping"].status, Status.UNAVAILABLE)
         self.assertEqual(checks["connectivity.public_ip_ping"].status, Status.UNAVAILABLE)
 
     def test_ping_timeout_is_failed(self):
         runner = FakeRunner({"ping": CommandResult([], None, error=TIMEOUT)})
-        public = by_id(connectivity.collect("Linux", GATEWAY, run=runner))["connectivity.public_ip_ping"]
+        public = by_id(collect("Linux", GATEWAY, run=runner))["connectivity.public_ip_ping"]
         self.assertEqual(public.status, Status.FAILED)
         self.assertFalse(public.data["reachable"])
 
@@ -106,14 +116,14 @@ class GatewayPingSkipTests(unittest.TestCase):
     def test_skipped_without_gateway(self):
         no_gateway = CheckResult.ok("network.gateway", "Default gateway", {"gateway": None, "interface": None})
         runner = FakeRunner({"1.1.1.1": ok(LINUX_PING_OK)})
-        checks = by_id(connectivity.collect("Linux", no_gateway, run=runner))
+        checks = by_id(collect("Linux", no_gateway, run=runner))
         self.assertEqual(checks["connectivity.gateway_ping"].status, Status.SKIPPED)
         self.assertIn("no default gateway", checks["connectivity.gateway_ping"].error)
         self.assertEqual(len([c for c in runner.calls if c[0] == "ping"]), 1)
 
     def test_skipped_when_gateway_unknown(self):
         unknown = CheckResult.failed("network.gateway", "Default gateway", "ip exited 1")
-        gateway = by_id(connectivity.collect("Linux", unknown, run=FakeRunner()))["connectivity.gateway_ping"]
+        gateway = by_id(collect("Linux", unknown, run=FakeRunner()))["connectivity.gateway_ping"]
         self.assertEqual(gateway.status, Status.SKIPPED)
         self.assertIn("could not be determined", gateway.error)
 
