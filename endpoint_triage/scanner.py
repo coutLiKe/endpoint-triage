@@ -1,0 +1,63 @@
+"""Run every collector in order and assemble the Report."""
+
+from __future__ import annotations
+
+import logging
+import platform
+import socket
+import time
+import traceback
+from datetime import datetime, timezone
+from typing import Callable
+
+from endpoint_triage import __version__, findings
+from endpoint_triage.collectors import connectivity, network, resources, system, updates
+from endpoint_triage.models import CheckResult, Report
+from endpoint_triage.runner import RunFunc, read_text_file, run_command
+
+log = logging.getLogger(__name__)
+
+
+def run_scan(os_name: str | None = None, run: RunFunc = run_command, read_file=read_text_file,
+             resolver=socket.getaddrinfo, progress: Callable[[str], None] = lambda message: None) -> Report:
+    os_name = os_name or platform.system()
+    started_at = datetime.now(timezone.utc)
+    started = time.monotonic()
+    checks: dict[str, list[CheckResult]] = {}
+
+    progress("Collecting system information")
+    checks["system"] = _guarded("system", lambda: system.collect(os_name, run, read_file))
+
+    progress("Collecting memory and disk usage")
+    checks["resources"] = _guarded("resources", lambda: resources.collect(os_name, run, read_file))
+
+    progress("Collecting network configuration")
+    checks["network"] = _guarded("network", lambda: network.collect(os_name, run, read_file))
+
+    progress("Testing connectivity (gateway, public IP, DNS)")
+    gateway = next((c for c in checks["network"] if c.id == network.GATEWAY_ID), None)
+    checks["connectivity"] = _guarded("connectivity",
+                                      lambda: connectivity.collect(os_name, gateway, run, resolver))
+
+    progress("Checking for pending OS updates (this can take a minute)")
+    checks["updates"] = _guarded("updates", lambda: updates.collect(os_name, run))
+
+    report = Report(__version__, os_name, started_at, time.monotonic() - started, checks)
+    report.findings = findings.analyze(report)
+    return report
+
+
+def _guarded(section: str, collect: Callable[[], list[CheckResult]]) -> list[CheckResult]:
+    """Last line of defense: a bug in one collector must not stop the scan.
+
+    Expected problems (missing commands, bad output) are handled inside the
+    collectors. Anything that still raises is a bug, so it is logged with a
+    traceback and reported as a failed check instead of crashing.
+    """
+    try:
+        return collect()
+    except Exception as exc:
+        log.debug("Collector %s crashed", section, exc_info=True)
+        return [CheckResult.failed(f"{section}.collector", f"{section.title()} collector",
+                                   f"unexpected error: {type(exc).__name__}: {exc}",
+                                   debug=traceback.format_exc())]
