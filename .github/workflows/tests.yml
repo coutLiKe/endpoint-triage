@@ -62,8 +62,8 @@ jobs:
 
   # Simulates a locked-down corporate Windows laptop on a real Windows runner:
   # 1. A standard (non-administrator) local user.
-  # 2. An enforced AppLocker script policy, which puts PowerShell into
-  #    Constrained Language Mode, exactly as on AppLocker-managed fleets.
+  # 2. PowerShell Constrained Language Mode, the mode AppLocker/WDAC policies
+  #    enforce, forced machine-wide with the __PSLockdownPolicy setting.
   # Core diagnostics must still be collected (exit code 0-2, never 3).
   windows-lockdown:
     name: windows-latest / lockdown simulation
@@ -101,39 +101,21 @@ jobs:
           Get-Content "$work\stdout.txt", "$work\stderr.txt"
           Get-Content "$work\reports\*.txt"
           Write-Host "endpoint-triage exit code: $($proc.ExitCode)"
+          Copy-Item "$work\reports" standard-user-reports -Recurse
           if ($proc.ExitCode -gt 2) { throw "Core diagnostics failed for a standard user" }
           exit 0  # the scan's own exit code (0-2) was checked above
 
-      - name: Scan under AppLocker (Constrained Language Mode)
+      - name: Scan under Constrained Language Mode
         shell: powershell
         run: |
-          # Enforced script rules that only allow scripts under Windows and Program Files.
-          # PowerShell then runs everything else, including -Command, in Constrained Language Mode.
-          $policy = @"
-          <AppLockerPolicy Version="1">
-            <RuleCollection Type="Script" EnforcementMode="Enabled">
-              <FilePathRule Id="$([guid]::NewGuid())" Name="Windows" Description="" UserOrGroupSid="S-1-1-0" Action="Allow">
-                <Conditions><FilePathCondition Path="%WINDIR%\*" /></Conditions>
-              </FilePathRule>
-              <FilePathRule Id="$([guid]::NewGuid())" Name="Program Files" Description="" UserOrGroupSid="S-1-1-0" Action="Allow">
-                <Conditions><FilePathCondition Path="%PROGRAMFILES%\*" /></Conditions>
-              </FilePathRule>
-            </RuleCollection>
-          </AppLockerPolicy>
-          "@
-          $policy | Set-Content applocker.xml -Encoding UTF8
-          Set-AppLockerPolicy -XmlPolicy applocker.xml
-          sc.exe config appidsvc start= demand | Out-Null
-          Start-Service AppIDSvc
+          # Force Constrained Language Mode for every new PowerShell process on the
+          # machine. PowerShell reads __PSLockdownPolicy from the machine environment;
+          # 4 = enforce, which is the mode AppLocker/WDAC policies put PowerShell in.
+          [Environment]::SetEnvironmentVariable("__PSLockdownPolicy", "4", "Machine")
           try {
-            $mode = ""
-            foreach ($attempt in 1..20) {
-              $mode = powershell -NoProfile -Command '$ExecutionContext.SessionState.LanguageMode'
-              if ($mode -eq "ConstrainedLanguage") { break }
-              Start-Sleep -Seconds 3
-            }
+            $mode = powershell -NoProfile -Command '$ExecutionContext.SessionState.LanguageMode'
             Write-Host "Language mode for child powershell.exe: $mode"
-            if ($mode -ne "ConstrainedLanguage") { throw "AppLocker did not enforce Constrained Language Mode" }
+            if ($mode -ne "ConstrainedLanguage") { throw "Constrained Language Mode is not active" }
 
             python dist/endpoint-triage.pyz --output clm-reports
             $code = $LASTEXITCODE
@@ -144,9 +126,7 @@ jobs:
               throw "Expected the update check to be reported as blocked by policy"
             }
           } finally {
-            # Restore an empty policy so later steps run normally.
-            '<AppLockerPolicy Version="1" />' | Set-Content empty.xml -Encoding UTF8
-            Set-AppLockerPolicy -XmlPolicy empty.xml
+            [Environment]::SetEnvironmentVariable("__PSLockdownPolicy", $null, "Machine")
           }
           exit 0
 
@@ -157,5 +137,5 @@ jobs:
           name: triage-report-windows-lockdown
           path: |
             clm-reports/
-            C:/triage-standard-user/reports/
+            standard-user-reports/
           if-no-files-found: ignore
