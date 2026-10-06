@@ -34,7 +34,8 @@ WINDOWS_DISKS_SCRIPT = (
 # cryptexes, Siri/asset images, simulator runtimes) that are not useful to a
 # technician and often look 100% full. Keep the root and Data volumes plus
 # user-visible drives under /Volumes/.
-MACOS_KEPT_MOUNTS = ("/", "/System/Volumes/Data")
+MACOS_DATA_MOUNT = "/System/Volumes/Data"
+MACOS_KEPT_MOUNTS = ("/", MACOS_DATA_MOUNT)
 MACOS_KEPT_PREFIX = "/Volumes/"
 
 
@@ -127,6 +128,14 @@ def parse_df(text: str, os_name: str) -> list[dict]:
     if not kept and rows:
         # Containers often mount root from "overlay"; fall back to "/".
         kept = [r for r in rows if r["mount"] == "/"]
+    if os_name == "Darwin" and any(r["mount"] == MACOS_DATA_MOUNT for r in kept):
+        # The read-only system volume (/) shares the APFS container with the
+        # Data volume, where user files live, so listing both is confusing.
+        # The container is also shared with other APFS volumes, so its size
+        # would not add up; Total is shown as used + free instead.
+        kept = [r for r in kept if r["mount"] != "/"]
+        for r in kept:
+            r["total_bytes"] = r["used_bytes"] + r["free_bytes"]
     return kept
 
 
@@ -212,6 +221,9 @@ def _posix_disks(os_name: str, run: RunFunc) -> CheckResult:
         return CheckResult.failed(DISKS_ID, DISKS_TITLE, "no disk volumes found in df output",
                                   debug=result.stdout)
     data: dict = {"volumes": volumes}
+    if os_name == "Darwin" and any(v["mount"] == MACOS_DATA_MOUNT for v in volumes):
+        data["note"] = ("APFS: the read-only system volume (/) shares space with the Data volume and is "
+                        "not listed; Total = used + free on each volume")
     if result.returncode != 0:
         data["note"] = f"df reported an error for some filesystems: {result.describe_failure()}"
     return CheckResult.ok(DISKS_ID, DISKS_TITLE, data)

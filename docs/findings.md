@@ -24,6 +24,7 @@ this page lists an ID the code no longer produces.
 
 | ID | Severity | Meaning | First step |
 |---|---|---|---|
+| `system.elevated_context` | INFO | The scan ran as SYSTEM (Windows) or root, typical for RMM/Intune deployment. Per-user settings such as the user proxy reflect that account. | Re-run as the signed-in user to see their proxy settings; collect reports from the path given with `--output`. |
 | `system.long_uptime` | INFO | The system has run for 30 days or more without a restart. | Ask the user to restart (after saving work) before deeper troubleshooting; pending updates often need it. |
 
 ## Network configuration

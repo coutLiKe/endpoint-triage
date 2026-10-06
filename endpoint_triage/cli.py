@@ -13,6 +13,7 @@ from pathlib import Path
 from endpoint_triage import __version__
 from endpoint_triage.reporters import overall_status, write_reports
 from endpoint_triage.collectors.connectivity import DNS_TEST_HOSTNAME, PUBLIC_IP_TARGET
+from endpoint_triage.models import STATUS_EXIT_CODES
 from endpoint_triage.scanner import run_scan
 
 # Exit codes follow the Nagios/monitoring convention so scripts and RMM
@@ -77,7 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-EXIT_CODES = {"OK": EXIT_OK, "WARNING": EXIT_WARNING, "CRITICAL": EXIT_CRITICAL, "UNKNOWN": EXIT_UNKNOWN}
+EXIT_CODES = STATUS_EXIT_CODES
 EXIT_MEANINGS = {
     "OK": "no WARNING or CRITICAL findings",
     "WARNING": "at least one WARNING finding",

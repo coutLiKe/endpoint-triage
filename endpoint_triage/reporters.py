@@ -13,9 +13,15 @@ import textwrap
 from pathlib import Path
 from typing import Any, Callable
 
-from endpoint_triage.models import SECTIONS, CheckResult, Report, Severity, Status
+from endpoint_triage.models import SECTIONS, STATUS_EXIT_CODES, CheckResult, Report, Severity, Status
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
+FINDINGS_DOC_URL = "https://github.com/coutLiKe/endpoint-triage/blob/main/docs/findings.md"
+RUN_AS_LABELS = {
+    "user": "standard user",
+    "root": "root",
+    "system": "SYSTEM account (per-user settings reflect SYSTEM, not the signed-in user)",
+}
 WIDTH = 76
 LABEL_WIDTH = 18
 
@@ -133,12 +139,19 @@ def _render_interfaces(check: CheckResult) -> list[str]:
     interfaces = check.data["interfaces"]
     if not interfaces:
         return ["  Interfaces: none found"]
+    # Interfaces that are down with no address are unused ports; list them on
+    # one line so the interface that matters is easy to find. (All are in the JSON.)
+    shown = [i for i in interfaces if i["status"] != "down" or i["ipv4"] or i["ipv6"]]
+    unused = [i["name"] for i in interfaces if i not in shown]
     lines = []
-    for i in interfaces:
-        lines.append(f"  {i['name']} ({i['status']})")
+    for i in shown:
+        label = f"{i['status']}, VPN tunnel" if i.get("tunnel") else i["status"]
+        lines.append(f"  {i['name']} ({label})")
         lines.append(_line("MAC", i["mac"] or "n/a", indent=4))
         lines.append(_line("IPv4", ", ".join(i["ipv4"]) or "none", indent=4))
         lines.append(_line("IPv6", ", ".join(i["ipv6"]) or "none", indent=4))
+    if unused:
+        lines.append(_line("Not connected", ", ".join(unused)))
     return lines
 
 
@@ -146,7 +159,9 @@ def _render_gateway(check: CheckResult) -> list[str]:
     gateway = check.data.get("gateway")
     if not gateway:
         return [_line("Default gateway", "none")]
-    via = f" (via {check.data['interface']})" if check.data.get("interface") else ""
+    via = f" (via {check.data['interface']}" if check.data.get("interface") else ""
+    if via:
+        via += ", VPN tunnel)" if check.data.get("via_tunnel") else ")"
     return [_line("Default gateway", gateway + via)]
 
 
@@ -254,6 +269,12 @@ def _render_check(check: CheckResult) -> list[str]:
 
 # ------------------------------------------------------------ text report
 
+def _format_local(moment) -> str:
+    offset = moment.strftime("%z")  # e.g. -0400
+    offset = f"{offset[:3]}:{offset[3:]}" if offset else ""
+    return f"{moment:%Y-%m-%d %H:%M:%S} (UTC{offset})"
+
+
 def _option_lines(report: Report) -> list[str]:
     options = report.options
     if not options:
@@ -281,20 +302,25 @@ def render_text(report: Report, debug: bool = False) -> str:
     lines += [
         _line("Hostname", hostname),
         _line("Operating system", os_label),
+        *([_line("Local time", _format_local(report.local_time))] if report.local_time else []),
         _line("Overall status", overall_status(report)),
         *([_line("Incomplete", ", ".join(report.incomplete_core_checks()))]
           if report.incomplete_core_checks() else []),
         _line("Findings", f"{findings['CRITICAL']} critical, {findings['WARNING']} warning, {findings['INFO']} info"),
         _line("Checks", ", ".join(f"{count} {status}" for status, count in checks.items())),
         _line("Scan duration", f"{report.duration_seconds:.1f} s"),
+        _line("Run as", RUN_AS_LABELS.get(report.run_as, report.run_as)),
         *_option_lines(report),
     ]
 
     lines += _heading("Findings")
     if not report.findings:
         lines.append("  No issues detected by the automated checks.")
+    else:
+        lines += _wrap(f"The ID after each title links to a first troubleshooting step: {FINDINGS_DOC_URL}", 2)
+        lines.append("")
     for finding in report.findings:
-        lines.append(f"[{finding.severity.value}] {finding.title}")
+        lines.append(f"[{finding.severity.value}] {finding.title} ({finding.id})")
         lines += _wrap(finding.explanation, 2)
         if finding.evidence:
             lines.append("  Evidence:")
@@ -333,12 +359,16 @@ def report_to_dict(report: Report, debug: bool = False) -> dict[str, Any]:
         "schema_version": SCHEMA_VERSION,
         "tool": {"name": "endpoint-triage", "version": report.tool_version},
         "generated_at": report.generated_at.isoformat(timespec="seconds"),
+        "generated_at_local": report.local_time.isoformat(timespec="seconds") if report.local_time else None,
         "duration_seconds": round(report.duration_seconds, 2),
         "summary": {
             "hostname": hostname,
             "os": os_label,
             "os_family": report.os_name,
+            "run_as": report.run_as,
             "overall_status": overall_status(report),
+            "exit_code": STATUS_EXIT_CODES[overall_status(report)],
+            "incomplete_core_checks": report.incomplete_core_checks(),
             "finding_counts": finding_counts(report),
             "check_counts": check_counts(report),
         },

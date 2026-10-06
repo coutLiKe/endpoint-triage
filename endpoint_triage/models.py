@@ -94,6 +94,9 @@ class Finding:
         }
 
 
+# Exit code for each overall status (Nagios plugin convention).
+STATUS_EXIT_CODES = {"OK": 0, "WARNING": 1, "CRITICAL": 2, "UNKNOWN": 3}
+
 # Without these, the scan cannot honestly call the endpoint healthy, so a
 # missing or failed core check makes the overall status UNKNOWN.
 CORE_CHECK_IDS = ("system.os", "resources.memory", "resources.disks", "network.interfaces")
@@ -119,6 +122,12 @@ class Report:
     # The settings this scan ran with (targets, skipped checks), so a reader
     # knows exactly what was tested.
     options: dict[str, Any] = field(default_factory=dict)
+    # "user", "root" or "system". Per-user settings (such as the Windows user
+    # proxy) are read for the account the tool ran as.
+    run_as: str = "user"
+    # The same moment as generated_at in the endpoint's own time zone, so a
+    # technician can match the report to "it broke at 2pm".
+    local_time: datetime | None = None
 
     def all_checks(self) -> list[CheckResult]:
         return [check for key, _ in SECTIONS for check in self.checks.get(key, [])]

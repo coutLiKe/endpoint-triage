@@ -73,14 +73,48 @@ class TextReportTests(unittest.TestCase):
         self.assertIn("None. All checks completed.", text)
 
 
+class ReadabilityTests(unittest.TestCase):
+    def setUp(self):
+        self.text = reporters.render_text(build_sample_report())
+
+    def test_finding_ids_and_doc_link_are_printed(self):
+        self.assertIn("[CRITICAL] Critically low disk space on C: (disk.critical_low_space)", self.text)
+        self.assertIn(reporters.FINDINGS_DOC_URL, self.text)
+
+    def test_local_time_next_to_utc(self):
+        self.assertIn("Generated 2026-10-05 14:03:22 UTC", self.text)
+        self.assertIn("Local time        : 2026-10-05 10:03:22 (UTC-04:00)", self.text)
+
+    def test_run_as_is_shown(self):
+        self.assertIn("Run as            : standard user", self.text)
+
+    def test_unused_interfaces_are_summarized(self):
+        report = build_sample_report()
+        interfaces = report.get("network.interfaces").data["interfaces"]
+        interfaces.append({"name": "en5", "status": "down", "ipv4": [], "ipv6": [], "mac": "aa:bb:cc:dd:ee:ff",
+                           "tunnel": False})
+        interfaces.append({"name": "utun4", "status": "up", "ipv4": ["100.64.1.2/32"], "ipv6": [], "mac": None,
+                           "tunnel": True})
+        text = reporters.render_text(report)
+        self.assertIn("Not connected     : Ethernet, en5", text)
+        self.assertNotIn("  en5 (down)", text)
+        self.assertIn("  utun4 (up, VPN tunnel)", text)
+
+    def test_incomplete_core_checks_in_json(self):
+        report = Report("1.0.0", "Linux", datetime(2026, 1, 1, tzinfo=timezone.utc), 0.1, {})
+        summary = reporters.report_to_dict(report)["summary"]
+        self.assertEqual(summary["exit_code"], 3)
+        self.assertIn("resources.disks", summary["incomplete_core_checks"])
+
 class JsonReportTests(unittest.TestCase):
     def setUp(self):
         self.data = json.loads(reporters.render_json(build_sample_report()))
 
     def test_top_level_structure(self):
-        self.assertEqual(set(self.data), {"schema_version", "tool", "generated_at", "duration_seconds",
-                                          "summary", "scan_options", "findings", "sections"})
-        self.assertEqual(self.data["schema_version"], "1.1")
+        self.assertEqual(set(self.data), {"schema_version", "tool", "generated_at", "generated_at_local",
+                                          "duration_seconds", "summary", "scan_options", "findings", "sections"})
+        self.assertEqual(self.data["schema_version"], "1.2")
+        self.assertEqual(self.data["generated_at_local"], "2026-10-05T10:03:22-04:00")
         self.assertEqual(self.data["scan_options"],
                          {"ping_target": "1.1.1.1", "dns_name": "example.com", "skip_updates": False})
         self.assertEqual(self.data["tool"], {"name": "endpoint-triage", "version": __version__})
@@ -89,6 +123,9 @@ class JsonReportTests(unittest.TestCase):
     def test_summary(self):
         summary = self.data["summary"]
         self.assertEqual(summary["overall_status"], "CRITICAL")
+        self.assertEqual(summary["exit_code"], 2)
+        self.assertEqual(summary["incomplete_core_checks"], [])
+        self.assertEqual(summary["run_as"], "user")
         self.assertEqual(summary["finding_counts"], {"CRITICAL": 1, "WARNING": 1, "INFO": 2})
         self.assertEqual(summary["check_counts"], {"ok": 10, "failed": 2, "unavailable": 0, "skipped": 2})
 

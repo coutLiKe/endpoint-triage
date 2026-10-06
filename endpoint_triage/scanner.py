@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import platform
 import socket
 import time
@@ -52,9 +53,29 @@ def run_scan(os_name: str | None = None, run: RunFunc = run_command, read_file=r
         checks["updates"] = _guarded("updates", lambda: updates.collect(os_name, run))
 
     options = {"ping_target": ping_target, "dns_name": dns_name, "skip_updates": skip_updates}
-    report = Report(__version__, os_name, started_at, time.monotonic() - started, checks, options=options)
+    report = Report(__version__, os_name, started_at, time.monotonic() - started, checks, options=options,
+                    run_as=detect_run_context(os_name, os.environ if environ is None else environ),
+                    local_time=started_at.astimezone())
     report.findings = findings.analyze(report)
     return report
+
+
+def detect_run_context(os_name: str, environ, geteuid=getattr(os, "geteuid", None)) -> str:
+    """Return "system", "root" or "user" without recording the user name.
+
+    RMM and Intune scripts usually run as SYSTEM (Windows) or root. Per-user
+    settings are then read for that account, not the signed-in user.
+    """
+    if os_name == "Windows":
+        user = environ.get("USERNAME", "")
+        profile = environ.get("USERPROFILE", "").lower()
+        # The SYSTEM account's USERNAME is "<COMPUTERNAME>$".
+        if user.upper() == "SYSTEM" or user.endswith("$") or "systemprofile" in profile:
+            return "system"
+        return "user"
+    if geteuid is not None and geteuid() == 0:
+        return "root"
+    return "user"
 
 
 def _guarded(section: str, collect: Callable[[], list[CheckResult]]) -> list[CheckResult]:

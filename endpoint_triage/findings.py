@@ -43,6 +43,7 @@ def analyze(report: Report) -> list[Finding]:
         proxy_tcp=report.get("connectivity.proxy_tcp"),
     )
     findings += update_findings(report.get("updates.os"))
+    findings += run_context_findings(report.run_as)
     # Most severe first; sorted() is stable so equal severities keep their order.
     return sorted(findings, key=lambda f: f.severity.rank, reverse=True)
 
@@ -348,6 +349,20 @@ def _dns_failed_no_internet(evidence: list[str]) -> Finding:
         "connectivity.dns_failed_no_internet", Severity.INFO, "DNS resolution also failed",
         "DNS resolution failed, which is expected when there is no internet connectivity. "
         "Re-test DNS after connectivity is restored.", evidence)
+
+
+# ---------------------------------------------------------- run context
+
+def run_context_findings(run_as: str) -> list[Finding]:
+    if run_as not in ("system", "root"):
+        return []
+    account = "the SYSTEM account" if run_as == "system" else "root"
+    return [Finding(
+        "system.elevated_context", Severity.INFO, f"Scan ran as {account}, not the signed-in user",
+        f"The tool ran as {account}, which is typical when it is pushed by an RMM tool or Intune. "
+        "Per-user settings, such as the Windows Internet Options proxy, were read for that account "
+        "and may not match what the user sees. Reports were saved in that account's working folder "
+        "unless --output was given.", [f"Run as: {run_as}"])]
 
 
 # -------------------------------------------------------------- updates

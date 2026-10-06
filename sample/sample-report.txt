@@ -7,21 +7,26 @@ Summary
 -------
   Hostname          : HD-LAPTOP-042.corp.local
   Operating system  : Microsoft Windows 11 Pro
+  Local time        : 2026-10-05 10:03:22 (UTC-04:00)
   Overall status    : CRITICAL
   Findings          : 1 critical, 1 warning, 2 info
   Checks            : 10 ok, 2 failed, 0 unavailable, 2 skipped
   Scan duration     : 7.4 s
+  Run as            : standard user
   Test targets      : ping 1.1.1.1, resolve example.com
 
 Findings
 --------
-[CRITICAL] Critically low disk space on C:
+  The ID after each title links to a first troubleshooting step:
+  https://github.com/coutLiKe/endpoint-triage/blob/main/docs/findings.md
+
+[CRITICAL] Critically low disk space on C: (disk.critical_low_space)
   C: is at or above 95% used or has less than 5.0 GB free. Very low free
   space can cause failed updates, application crashes and slow performance.
   Evidence:
     - Volume C: is 96.4% used, 17.0 GB free of 476.0 GB
 
-[WARNING] DNS resolution failed
+[WARNING] DNS resolution failed (connectivity.dns_failed)
   DNS resolution failed for example.com, but the public IP connectivity test
   succeeded. This may indicate a DNS configuration or DNS server issue. A
   proxy is configured; if this network resolves public names only through
@@ -31,13 +36,13 @@ Findings
     - Ping 1.1.1.1: reply (15.0 ms)
     - Resolve example.com: failed (DNS lookup for example.com timed out after 5s)
 
-[INFO] System has not been restarted recently
+[INFO] System has not been restarted recently (system.long_uptime)
   The system has been running for more than 30 days. Pending updates and
   long-running resource leaks are often resolved by a restart.
   Evidence:
     - Uptime: 38 days (last boot 2026-08-28T07:48:00+00:00)
 
-[INFO] A proxy is configured
+[INFO] A proxy is configured (network.proxy_configured)
   Web traffic from this machine is sent through a proxy or a proxy auto-
   config (PAC) script. The ping and DNS tests do not use the proxy, so they
   can pass while websites fail if the proxy is unreachable, the PAC script
@@ -69,10 +74,7 @@ Network Configuration
     MAC               : a4:83:e7:12:34:56
     IPv4              : 192.168.1.57/24
     IPv6              : fe80::1c2b:3d4e:5f60:7182/64
-  Ethernet (down)
-    MAC               : 00:1a:2b:3c:4d:5e
-    IPv4              : none
-    IPv6              : none
+  Not connected     : Ethernet
   Default gateway   : 192.168.1.1 (via Wi-Fi)
   DNS servers       : 192.168.1.1
   Proxy             : Windows user proxy (WinINET)

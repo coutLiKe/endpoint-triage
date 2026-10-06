@@ -1,6 +1,6 @@
 """A fully populated Report built from fake data, shared by reporter and CLI tests."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from endpoint_triage import __version__, findings
 from endpoint_triage.models import CheckResult, Report
@@ -64,6 +64,8 @@ def build_sample_report(debug_detail: bool = True) -> Report:
         ],
     }
     report = Report(__version__, "Windows", datetime(2026, 10, 5, 14, 3, 22, tzinfo=timezone.utc), 7.4, checks,
-                    options={"ping_target": "1.1.1.1", "dns_name": "example.com", "skip_updates": False})
+                    options={"ping_target": "1.1.1.1", "dns_name": "example.com", "skip_updates": False},
+                    run_as="user",
+                    local_time=datetime(2026, 10, 5, 10, 3, 22, tzinfo=timezone(timedelta(hours=-4))))
     report.findings = findings.analyze(report)
     return report

@@ -116,5 +116,24 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(len(messages), 5)
 
 
+
+class RunContextTests(unittest.TestCase):
+    def test_windows_system_account(self):
+        self.assertEqual(scanner.detect_run_context("Windows", {"USERNAME": "HD-LAPTOP-042$"}), "system")
+        self.assertEqual(scanner.detect_run_context(
+            "Windows", {"USERNAME": "x", "USERPROFILE": r"C:\Windows\system32\config\systemprofile"}), "system")
+        self.assertEqual(scanner.detect_run_context("Windows", {"USERNAME": "alice"}), "user")
+
+    def test_posix_root(self):
+        self.assertEqual(scanner.detect_run_context("Linux", {}, geteuid=lambda: 0), "root")
+        self.assertEqual(scanner.detect_run_context("Darwin", {}, geteuid=lambda: 501), "user")
+
+    def test_elevated_run_adds_info_finding(self):
+        report = run_scan("Linux", run=linux_runner(), read_file=fake_files(LINUX_FILES), resolver=resolver)
+        self.assertIn(report.run_as, ("user", "root"))
+        from endpoint_triage import findings
+        self.assertEqual([f.id for f in findings.run_context_findings("system")], ["system.elevated_context"])
+        self.assertEqual(findings.run_context_findings("user"), [])
+
 if __name__ == "__main__":
     unittest.main()

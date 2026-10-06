@@ -29,11 +29,13 @@ class MacOSResourceTests(unittest.TestCase):
         mounts = [v["mount"] for v in volumes]
         # APFS system volumes, read-only asset/simulator images, devfs and
         # autofs maps are filtered out; mount points with spaces survive.
-        self.assertEqual(mounts, ["/", "/System/Volumes/Data", "/Volumes/Backup Drive"])
-        data_volume = volumes[1]
+        # The sealed system volume (/) is dropped because it shares space with the Data volume.
+        self.assertEqual(mounts, ["/System/Volumes/Data", "/Volumes/Backup Drive"])
+        data_volume = volumes[0]
         self.assertEqual(data_volume["used_bytes"], 199815616 * 1024)
-        # APFS volumes share a container, so total comes from df's size column.
-        self.assertEqual(data_volume["total_bytes"], 239362496 * 1024)
+        # The APFS container is shared, so Total is used + free and the row adds up.
+        self.assertEqual(data_volume["total_bytes"], (199815616 + 14863604) * 1024)
+        self.assertIn("APFS", checks["resources.disks"].data["note"])
         self.assertEqual(data_volume["free_bytes"], 14863604 * 1024)
         self.assertAlmostEqual(data_volume["used_percent"], 93.1, places=1)
 
