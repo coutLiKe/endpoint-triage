@@ -293,6 +293,15 @@ class ProxyFindingTests(unittest.TestCase):
                                {"configured": False, "proxies": [], "sources_checked": []})
         self.assertEqual(findings.proxy_findings(check), [])
 
+
+class VpnFindingTests(unittest.TestCase):
+    def test_default_route_through_tunnel_is_info(self):
+        gateway = CheckResult.ok("network.gateway", "Default gateway",
+                                 {"gateway": "10.8.0.1", "interface": "wg0", "via_tunnel": True})
+        found = findings.vpn_findings(gateway)
+        self.assertEqual([(f.id, f.severity) for f in found], [("network.vpn_default_route", Severity.INFO)])
+        self.assertEqual(findings.vpn_findings(GATEWAY), [])
+
 class FindingsDocTests(unittest.TestCase):
     def test_every_finding_id_is_documented(self):
         import re

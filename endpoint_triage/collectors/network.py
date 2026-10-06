@@ -1,11 +1,11 @@
-"""Network configuration: interfaces, default gateway, DNS servers."""
+"""Network configuration: interfaces, default gateway, DNS servers, VPN tunnels."""
 
 from __future__ import annotations
 
 import json
 import re
 
-from endpoint_triage.models import CheckResult
+from endpoint_triage.models import CheckResult, Status
 from endpoint_triage.runner import (
     RunFunc,
     command_failure,
@@ -26,6 +26,18 @@ SKIPPED_PREFIXES = {
     "Windows": ("Loopback",),
 }
 
+# VPN tunnel interfaces. On macOS several utun interfaces always exist for
+# system services, so a tunnel is only reported when it has an IPv4 address.
+TUNNEL_PREFIXES = {
+    "Darwin": ("utun", "ipsec", "ppp"),
+    "Linux": ("tun", "tap", "wg", "ppp", "ipsec", "vti", "tailscale", "zt"),
+}
+# Windows adapter names are free text, so tunnels are recognized by the
+# adapter description of common VPN clients.
+WINDOWS_TUNNEL_KEYWORDS = ("vpn", "tunnel", "tap-", "wireguard", "wintun", "anyconnect", "globalprotect",
+                           "pangp", "fortinet", "fortissl", "pulse secure", "openvpn", "zscaler", "netskope",
+                           "tailscale", "zerotier")
+
 # Windows placeholder DNS addresses used when no IPv6 DNS is configured.
 WINDOWS_PLACEHOLDER_DNS = ("fec0:0:0:ffff::",)
 
@@ -33,7 +45,7 @@ WINDOWS_PLACEHOLDER_DNS = ("fec0:0:0:ffff::",)
 # [pscustomobject], and [string] casts instead of method calls on
 # non-core types (CLM only allows methods on core .NET types).
 WINDOWS_NETWORK_SCRIPT = (
-    "$adapters = @(Get-NetAdapter | Select-Object Name, Status, MacAddress, ifIndex); "
+    "$adapters = @(Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, MacAddress, ifIndex); "
     "$addresses = @(Get-NetIPAddress | Select-Object InterfaceIndex, IPAddress, PrefixLength, "
     "@{n='Family';e={[string]$_.AddressFamily}}); "
     "$routes = @(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | "
@@ -46,22 +58,45 @@ WINDOWS_NETWORK_SCRIPT = (
 
 def collect(os_name: str, run: RunFunc = run_command, read_file=read_text_file) -> list[CheckResult]:
     if os_name == "Darwin":
-        return [_macos_interfaces(run), _macos_gateway(run), _macos_dns(run)]
-    if os_name == "Linux":
-        return [_linux_interfaces(run), _linux_gateway(run), _linux_dns(read_file)]
-    if os_name == "Windows":
-        return _windows(run)
+        checks = [_macos_interfaces(run), _macos_gateway(run), _macos_dns(run)]
+    elif os_name == "Linux":
+        checks = [_linux_interfaces(run), _linux_gateway(run), _linux_dns(read_file)]
+    elif os_name == "Windows":
+        checks = _windows(run)
+    else:
+        checks = None
+    if checks is not None:
+        _mark_tunnel_route(*checks[:2])
+        return checks
     return [unsupported_os(INTERFACES_ID, INTERFACES_TITLE, os_name),
             unsupported_os(GATEWAY_ID, GATEWAY_TITLE, os_name),
             unsupported_os(DNS_ID, DNS_TITLE, os_name)]
 
 
-def interface(name: str, status: str, ipv4=None, ipv6=None, mac=None) -> dict:
-    return {"name": name, "status": status, "ipv4": ipv4 or [], "ipv6": ipv6 or [], "mac": mac}
+def interface(name: str, status: str, ipv4=None, ipv6=None, mac=None, tunnel: bool = False) -> dict:
+    return {"name": name, "status": status, "ipv4": ipv4 or [], "ipv6": ipv6 or [], "mac": mac,
+            "tunnel": tunnel}
 
 
-def is_relevant(name: str, os_name: str) -> bool:
-    return not name.startswith(SKIPPED_PREFIXES.get(os_name, ()))
+def is_tunnel(name: str, os_name: str, description: str = "") -> bool:
+    if os_name == "Windows":
+        text = f"{name} {description}".lower()
+        return any(keyword in text for keyword in WINDOWS_TUNNEL_KEYWORDS)
+    return name.startswith(TUNNEL_PREFIXES.get(os_name, ()))
+
+
+def is_relevant(item: dict, os_name: str) -> bool:
+    if item["tunnel"]:
+        return bool(item["ipv4"])  # a tunnel matters when it carries traffic
+    return not item["name"].startswith(SKIPPED_PREFIXES.get(os_name, ()))
+
+
+def _mark_tunnel_route(interfaces_check: CheckResult, gateway_check: CheckResult) -> None:
+    """Record whether the default route points into a VPN tunnel."""
+    if gateway_check.status != Status.OK:
+        return
+    tunnels = {i["name"] for i in interfaces_check.data.get("interfaces", []) if i.get("tunnel")}
+    gateway_check.data["via_tunnel"] = gateway_check.data.get("interface") in tunnels
 
 
 def _dedupe(items) -> list:
@@ -188,7 +223,8 @@ def parse_windows_network(text: str) -> tuple[list[dict], dict, list[str]]:
             cidr = f"{_strip_scope(addr['IPAddress'])}/{addr['PrefixLength']}"
             (ipv4 if addr.get("Family") == "IPv4" else ipv6).append(cidr)
         mac = (adapter.get("MacAddress") or "").replace("-", ":").lower() or None
-        interfaces.append(interface(adapter["Name"], status, ipv4, ipv6, mac))
+        tunnel = is_tunnel(adapter["Name"], "Windows", adapter.get("InterfaceDescription") or "")
+        interfaces.append(interface(adapter["Name"], status, ipv4, ipv6, mac, tunnel=tunnel))
 
     gateway = {"gateway": None, "interface": None}
     routes = [r for r in data.get("routes") or [] if r.get("NextHop") not in (None, "0.0.0.0")]
@@ -208,7 +244,10 @@ def parse_windows_network(text: str) -> tuple[list[dict], dict, list[str]]:
 # ----------------------------------------------------------------- per-OS
 
 def _interfaces_check(all_interfaces: list[dict], os_name: str) -> CheckResult:
-    relevant = [i for i in all_interfaces if is_relevant(i["name"], os_name)]
+    for item in all_interfaces:
+        if not item["tunnel"]:
+            item["tunnel"] = is_tunnel(item["name"], os_name)
+    relevant = [i for i in all_interfaces if is_relevant(i, os_name)]
     return CheckResult.ok(INTERFACES_ID, INTERFACES_TITLE, {"interfaces": relevant})
 
 

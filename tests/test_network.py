@@ -1,3 +1,4 @@
+import json
 import unittest
 
 from endpoint_triage.collectors import network
@@ -43,7 +44,7 @@ class MacOSNetworkTests(unittest.TestCase):
 
     def test_gateway_and_dns(self):
         checks = by_id(network.collect("Darwin", run=macos_runner()))
-        self.assertEqual(checks["network.gateway"].data, {"gateway": "192.168.1.1", "interface": "en0"})
+        self.assertEqual(checks["network.gateway"].data, {"gateway": "192.168.1.1", "interface": "en0", "via_tunnel": False})
         # Duplicates from the scoped resolver section are removed.
         self.assertEqual(checks["network.dns_servers"].data["servers"], ["192.168.1.1", "2001:db8:1234::1"])
 
@@ -91,7 +92,7 @@ class LinuxNetworkTests(unittest.TestCase):
         self.assertEqual(interfaces["wlp2s0"]["status"], "down")
         self.assertEqual(interfaces["wg0"]["status"], "up")  # UNKNOWN operstate + LOWER_UP
         self.assertIsNone(interfaces["wg0"]["mac"])
-        self.assertEqual(checks["network.gateway"].data, {"gateway": "10.0.0.1", "interface": "enp3s0"})
+        self.assertEqual(checks["network.gateway"].data, {"gateway": "10.0.0.1", "interface": "enp3s0", "via_tunnel": False})
         self.assertEqual(checks["network.dns_servers"].data["servers"], ["10.0.0.1", "9.9.9.9"])
 
     def test_no_default_route(self):
@@ -131,7 +132,7 @@ class WindowsNetworkTests(unittest.TestCase):
         self.assertEqual(wifi["ipv6"], ["fe80::1c2b:3d4e:5f60:7182/64"])
         self.assertEqual(wifi["mac"], "a4:83:e7:12:34:56")
         self.assertEqual(interfaces["Ethernet"]["status"], "down")
-        self.assertEqual(checks["network.gateway"].data, {"gateway": "192.168.1.1", "interface": "Wi-Fi"})
+        self.assertEqual(checks["network.gateway"].data, {"gateway": "192.168.1.1", "interface": "Wi-Fi", "via_tunnel": False})
         # Only DNS for "up" adapters, without the fec0:: placeholders.
         self.assertEqual(checks["network.dns_servers"].data["servers"], ["192.168.1.1", "1.1.1.1"])
         self.assertEqual(len(runner.calls), 1)
@@ -144,6 +145,40 @@ class WindowsNetworkTests(unittest.TestCase):
         checks = network.collect("Windows", run=FakeRunner({"Get-NetAdapter": ok('{"adapters": [{"Name": "x"}]}')}))
         self.assertTrue(all(c.status == Status.FAILED for c in checks))
 
+
+
+class VpnTunnelTests(unittest.TestCase):
+    def test_macos_tunnel_with_address_and_default_route(self):
+        ifconfig = fixture("macos_ifconfig.txt") + (
+            "utun4: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 1280\n"
+            "\tinet 100.101.102.103 --> 100.101.102.103 netmask 0xffffffff\n")
+        route = ROUTE_GET.replace("gateway: 192.168.1.1", "gateway: 100.101.102.103").replace("interface: en0", "interface: utun4")
+        checks = by_id(network.collect("Darwin", run=macos_runner(ifconfig=ok(ifconfig), route=ok(route))))
+        interfaces = {i["name"]: i for i in checks["network.interfaces"].data["interfaces"]}
+        self.assertTrue(interfaces["utun4"]["tunnel"])
+        self.assertNotIn("utun0", interfaces)  # system tunnel without IPv4 stays hidden
+        self.assertTrue(checks["network.gateway"].data["via_tunnel"])
+
+    def test_linux_wireguard_default_route(self):
+        runner = FakeRunner({"ip -j addr": ok(fixture("linux_ip_addr.json")),
+                             "ip -j route": ok('[{"dst":"default","gateway":"10.8.0.1","dev":"wg0","metric":50}]')})
+        checks = by_id(network.collect("Linux", run=runner, read_file=fake_files({})))
+        interfaces = {i["name"]: i for i in checks["network.interfaces"].data["interfaces"]}
+        self.assertTrue(interfaces["wg0"]["tunnel"])
+        self.assertFalse(interfaces["enp3s0"]["tunnel"])
+        self.assertTrue(checks["network.gateway"].data["via_tunnel"])
+
+    def test_windows_vpn_recognized_by_description(self):
+        data = json.loads(fixture("windows_network.json"))
+        data["adapters"].append({"Name": "Ethernet 3", "InterfaceDescription": "Cisco AnyConnect Secure Mobility Client Virtual Miniport Adapter for Windows x64",
+                                 "Status": "Up", "MacAddress": "00-05-9A-3C-7A-00", "ifIndex": 30})
+        data["addresses"].append({"InterfaceIndex": 30, "IPAddress": "10.200.1.15", "PrefixLength": 24, "Family": "IPv4"})
+        data["routes"] = [{"NextHop": "10.200.1.1", "InterfaceIndex": 30, "RouteMetric": 1}]
+        checks = by_id(network.collect("Windows", run=FakeRunner({"Get-NetAdapter": ok(json.dumps(data))})))
+        interfaces = {i["name"]: i for i in checks["network.interfaces"].data["interfaces"]}
+        self.assertTrue(interfaces["Ethernet 3"]["tunnel"])
+        self.assertFalse(interfaces["Wi-Fi"]["tunnel"])
+        self.assertTrue(checks["network.gateway"].data["via_tunnel"])
 
 if __name__ == "__main__":
     unittest.main()

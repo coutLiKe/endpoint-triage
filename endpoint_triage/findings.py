@@ -32,6 +32,7 @@ def analyze(report: Report) -> list[Finding]:
     findings += interface_findings(report.get("network.interfaces"))
     findings += dns_server_findings(report.get("network.dns_servers"))
     findings += proxy_findings(report.get("network.proxy"))
+    findings += vpn_findings(report.get("network.gateway"))
     findings += connectivity_findings(
         report.get("network.gateway"),
         report.get("connectivity.gateway_ping"),
@@ -189,6 +190,17 @@ def _dns_evidence(check: CheckResult | None) -> str:
     if check.status == Status.OK:
         return f"Resolve {host}: {', '.join(check.data['addresses'][:3])}"
     return f"Resolve {host}: failed ({check.error})"
+
+
+def vpn_findings(gateway: CheckResult | None) -> list[Finding]:
+    if not _ok(gateway) or not gateway.data.get("via_tunnel"):
+        return []
+    return [Finding(
+        "network.vpn_default_route", Severity.INFO, "Internet traffic goes through a VPN tunnel",
+        "The default route points into a VPN tunnel, so internet traffic and the connectivity tests "
+        "go through the VPN. Connection problems may come from the VPN or the corporate network "
+        "behind it rather than from the local network; try again with the VPN disconnected to compare.",
+        [f"Default route via {gateway.data.get('interface')} (VPN tunnel)"])]
 
 
 def _tcp_evidence(check: CheckResult | None) -> str | None:

@@ -33,6 +33,7 @@ this page lists an ID the code no longer produces.
 | `network.apipa_address` | WARNING | An interface has a self-assigned `169.254.x.x` address, so DHCP likely failed. | Renew the lease (`ipconfig /renew`, or turn Wi-Fi off and on); if it persists, check the DHCP scope and the switch port or Wi-Fi network. |
 | `network.no_active_connection` | WARNING | No interface is up with a usable IPv4 address. | Check the cable or Wi-Fi connection and that the adapter is enabled (and airplane mode is off). |
 | `network.proxy_configured` | INFO | Web traffic goes through a proxy or a PAC script (from environment variables or the OS proxy settings). | If websites fail while ping and DNS pass, check that the proxy is reachable and the PAC file downloads; confirm the user is allowed through the proxy. |
+| `network.vpn_default_route` | INFO | The default route points into a VPN tunnel, so internet traffic goes through the VPN. | If connectivity fails, compare with the VPN disconnected; check the VPN client status and the corporate egress. |
 | `network.no_dns_servers` | WARNING | No DNS servers are configured. | Check the adapter's DNS settings and DHCP options; renew the DHCP lease. |
 
 ## Connectivity
