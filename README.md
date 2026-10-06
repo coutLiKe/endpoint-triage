@@ -563,4 +563,4 @@ push and pull request:
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).
