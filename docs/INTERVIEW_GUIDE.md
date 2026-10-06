@@ -321,9 +321,22 @@ story in the project: *how you found and fixed problems in your own work.*
     tool would have reported UNKNOWN. Unit tests mock PowerShell, so they
     could never find this; only a real run could.
 
+- **Proxy detection** (v1.2.0, `collectors/proxy.py`). Corporate web traffic
+  often goes through a proxy that ping and DNS never touch, which explains
+  "every test passes but websites don't load". Windows has *two* proxies:
+  the per-user WinINET proxy (browsers, most apps) and the machine-wide
+  WinHTTP proxy (services like Windows Update). The WinHTTP value is read as
+  bytes from the registry and decoded, because `netsh` output is translated
+  into the display language. Proxy URLs can contain passwords, so `redact()`
+  strips credentials and query strings before anything is stored, and CI
+  proves a password set in `HTTPS_PROXY` never reaches the report.
+
 **What was deliberately rejected** (and why that's a good answer)
 - `--redact`: hashing a hostname with a short unsalted hash is reversible by
   guessing names, so it would give false confidence. Honest disclosure instead.
+- Proxy detection was first rejected (more commands), then added in 1.2.0
+  once it could be done with commands already on the allow-list. Priorities
+  change; the reasoning should be explicit both times.
 - `--config` file, report diffing, JSON on stdout, a JSON Schema file: useful,
   but each adds surface area the project's "keep the CLI small" goal argues
   against. Saying no to features is part of design.
@@ -341,6 +354,7 @@ story in the project: *how you found and fixed problems in your own work.*
 1. Your tool exited 0 on a machine where nothing could be read. Why was that a bug, and how did you fix it?
 2. You run commands without a shell. Why isn't that enough to be safe?
 3. Why does a successful DNS lookup change how you interpret failed pings?
+3b. Ping and DNS both pass but websites fail. What would you check? (Proxy: is one configured, is it reachable, does the PAC file download? This tool reports which proxy is configured.)
 4. Why didn't you add a redaction option?
 5. How does someone deploy this to 500 Windows laptops? (Python via Intune/winget, then push one `.pyz`, verify the hash, read the exit code.)
 6. What's still not validated? (A real domain-joined laptop with a production AppLocker/WDAC policy, and explicit-proxy networks. CI simulates CLM and a standard user; the README says exactly that.)

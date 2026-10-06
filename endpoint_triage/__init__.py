@@ -1,3 +1,3 @@
 """Endpoint Triage: read-only endpoint diagnostics for help desk tickets."""
 
-__version__ = "1.1.1"
+__version__ = "1.2.0"

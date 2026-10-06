@@ -37,6 +37,7 @@ targets (`<target>`, see below).
 | `/sbin/ifconfig` | none | Network interfaces |
 | `/sbin/route` | `-n get default` | Default gateway |
 | `/usr/sbin/scutil` | `--dns` | DNS servers |
+| `/usr/sbin/scutil` | `--proxy` | System proxy settings |
 | `/sbin/ping` | `-c 2 -W 2000 <target>` | Gateway and ping-target tests |
 | `/usr/sbin/softwareupdate` | `-l` | List pending updates (list only, never installs) |
 
@@ -69,6 +70,7 @@ is ever inserted into a script.** They use only read-only cmdlets:
 | Memory | `Get-CimInstance Win32_OperatingSystem` |
 | Disks | `Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3'` |
 | Network | `Get-NetAdapter`, `Get-NetIPAddress`, `Get-NetRoute`, `Get-DnsClientServerAddress` |
+| Proxy | `Get-ItemProperty` on `HKCU:\...\Internet Settings` (user proxy) and `HKLM:\...\Internet Settings\Connections` (WinHTTP proxy); registry reads only |
 | Updates | `New-Object -ComObject Microsoft.Update.Session`, then `CreateUpdateSearcher().Search('IsInstalled=0 and IsHidden=0')`: search only, no download or install |
 
 Each script ends with `ConvertTo-Json`, so Python parses structured data.
@@ -76,7 +78,9 @@ Each script ends with `ConvertTo-Json`, so Python parses structured data.
 ### In-process (no command)
 
 Hostname (`socket.gethostname`), architecture and kernel version
-(`platform`), and the DNS test (`socket.getaddrinfo`, the OS resolver).
+(`platform`), the DNS test (`socket.getaddrinfo`, the OS resolver), and the
+proxy environment variables `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` and
+`NO_PROXY` (and their lowercase forms).
 
 ## Files written
 
@@ -109,6 +113,9 @@ Collected because it is needed for triage:
 - Memory and disk sizes and usage, and disk mount points or drive letters
 - Network interface names, status, internal IPv4/IPv6 addresses and **MAC addresses**
 - Default gateway and DNS server addresses
+- Proxy server names, PAC script URLs and bypass lists (**credentials and URL
+  query strings are removed** before storage; CI verifies a password in a
+  proxy variable never reaches the report)
 - Test targets used and their results
 - Names of pending updates
 

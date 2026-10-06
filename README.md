@@ -179,6 +179,7 @@ are reported as *unavailable* and the overall status is `UNKNOWN`.
 | Ubuntu 24.04 (GitHub `ubuntu-latest`) | Real scan in CI on every push | All checks complete; ICMP is blocked, reported as INFO |
 | Windows Server 2025, **standard (non-admin) user** | CI creates a local user and runs the scan as that user | All checks complete |
 | Windows Server 2025, **PowerShell Constrained Language Mode** (what AppLocker/WDAC enforce) | CI forces CLM machine-wide, verifies it is active, then scans | All checks complete except the update search, which is reported as "blocked by policy" |
+| Windows Server 2025, **user, WinHTTP and environment proxies configured** | CI sets all three, scans, then restores them | All three detected; embedded credentials never reach the report |
 
 The lockdown simulation found a real bug that the unit tests could not: two
 PowerShell queries used a construct that Constrained Language Mode forbids,
@@ -186,7 +187,8 @@ so on an AppLocker-managed laptop the scan reported UNKNOWN (fixed in 1.1.1).
 
 **Not yet validated:** a real domain-joined laptop with a production
 AppLocker/WDAC policy (CI simulates the PowerShell restrictions, not a
-complete policy), and networks that require an explicit proxy.
+complete policy), and traffic through a real corporate proxy (CI verifies the
+proxy settings are detected, not that a proxy works).
 
 ## Example output
 
@@ -198,7 +200,7 @@ Update check that failed. The first sections look like this:
 ```text
 Endpoint Triage Report
 ======================
-Generated 2026-10-05 14:03:22 UTC by endpoint-triage 1.1.1
+Generated 2026-10-05 14:03:22 UTC by endpoint-triage 1.2.0
 Read-only scan: no system settings were changed.
 
 Summary
@@ -206,8 +208,8 @@ Summary
   Hostname          : HD-LAPTOP-042.corp.local
   Operating system  : Microsoft Windows 11 Pro
   Overall status    : CRITICAL
-  Findings          : 1 critical, 1 warning, 1 info
-  Checks            : 9 ok, 2 failed, 0 unavailable, 0 skipped
+  Findings          : 1 critical, 1 warning, 2 info
+  Checks            : 10 ok, 2 failed, 0 unavailable, 0 skipped
   Scan duration     : 7.4 s
   Test targets      : ping 1.1.1.1, resolve example.com
 
@@ -258,7 +260,7 @@ The JSON report contains the same data in a versioned, documented shape:
 ```json
 {
   "schema_version": "1.1",
-  "tool": { "name": "endpoint-triage", "version": "1.1.1" },
+  "tool": { "name": "endpoint-triage", "version": "1.2.0" },
   "generated_at": "2026-10-05T14:03:22+00:00",
   "duration_seconds": 7.4,
   "summary": {
@@ -266,8 +268,8 @@ The JSON report contains the same data in a versioned, documented shape:
     "os": "Microsoft Windows 11 Pro",
     "os_family": "Windows",
     "overall_status": "CRITICAL",
-    "finding_counts": { "CRITICAL": 1, "WARNING": 1, "INFO": 1 },
-    "check_counts": { "ok": 9, "failed": 2, "unavailable": 0, "skipped": 0 }
+    "finding_counts": { "CRITICAL": 1, "WARNING": 1, "INFO": 2 },
+    "check_counts": { "ok": 10, "failed": 2, "unavailable": 0, "skipped": 0 }
   },
   "scan_options": { "ping_target": "1.1.1.1", "dns_name": "example.com", "skip_updates": false },
   "findings": [
@@ -316,6 +318,7 @@ All thresholds are constants at the top of
 | Several interfaces disconnected | INFO | ≥ **2** relevant interfaces down |
 | No DNS servers configured | WARNING | Empty DNS server list |
 | No default gateway | WARNING | No default route |
+| Proxy configured | INFO | Any proxy, PAC script or auto-detect setting found |
 | Pending OS updates | INFO | ≥ 1 pending update |
 
 Why the 5 GB rule only applies to volumes of 20 GB or more: small partitions
@@ -438,6 +441,7 @@ Key design decisions:
 | Network | Interfaces: status, IPv4/IPv6 (CIDR), MAC | Is the adapter up? Did DHCP work? Is it on the right subnet? MAC addresses are needed for DHCP reservations and NAC |
 | Network | Default gateway | Without one, traffic cannot leave the local subnet |
 | Network | DNS servers | Wrong DNS servers are a classic cause of "internet works but websites don't" |
+| Network | Proxy configuration (environment variables, OS proxy, PAC script, auto-detect) | Ping and DNS don't use the proxy, so a broken or unreachable proxy explains "tests pass but websites fail" |
 | Connectivity | Ping gateway, ping target, resolve hostname | Narrows a connectivity problem to local network, internet or DNS |
 | Updates | Pending OS updates, restart required | Missing patches are a common cause of bugs and a security risk |
 
@@ -471,6 +475,7 @@ hang when DNS servers do not answer.
 | Interfaces | `ifconfig` | `ip -j addr` (JSON) | `Get-NetAdapter`, `Get-NetIPAddress` |
 | Gateway | `route -n get default` | `ip -j route show default` (JSON) | `Get-NetRoute 0.0.0.0/0` |
 | DNS servers | `scutil --dns` | `/etc/resolv.conf` | `Get-DnsClientServerAddress` |
+| Proxy | `scutil --proxy` + environment variables | Environment variables (`HTTPS_PROXY`, ...) | Registry: user proxy (WinINET) and system proxy (WinHTTP) + environment variables |
 | Ping | `ping -c 2 -W 2000` (ms) | `ping -c 2 -W 2` (seconds) | `ping -n 2 -w 2000` (ms) |
 | Updates | `softwareupdate -l` | `apt list --upgradable` or `dnf -C check-update` | Windows Update Agent COM API (search only) |
 
@@ -502,6 +507,12 @@ Notable differences the code handles:
   `resolvectl status`.
 - **Interface noise.** Loopback, tunnels, Docker bridges and macOS internal
   interfaces (`awdl`, `utun`, `anpi`, `bridge`, ...) are left out.
+- **Windows has two proxy settings.** The per-user Internet Options proxy
+  (WinINET) is used by browsers and most apps; the machine-wide WinHTTP proxy
+  is used by services such as Windows Update. Both are reported. The WinHTTP
+  value is decoded from its binary registry format instead of parsing
+  `netsh winhttp show proxy`, whose output is translated into the display
+  language.
 
 ## Error handling
 
@@ -559,6 +570,11 @@ silent, and an incomplete scan never claims to be healthy.**
 - `dnf` runs with `-C` (cache only) so it never writes to the package cache;
   `apt list` only reads the local package index.
 
+**Proxy credentials.** Proxy URLs can contain a user name and password
+(`http://user:password@proxy:8080`). They are removed, along with any query
+string in a PAC URL, before anything is stored; CI checks that a password set
+in a proxy variable never appears in the reports.
+
 **Network traffic the tool generates.** The tool *does* make network
 requests as part of its tests, but none of them carry collected information:
 two ICMP pings (the default gateway and the ping target, default `1.1.1.1`),
@@ -575,7 +591,8 @@ lists, running processes, and serial numbers.
 **Personal and sensitive data the reports *do* contain,** because it is
 needed for triage: the hostname (also in the report file name), internal IP
 addresses, MAC addresses of the listed network interfaces, DNS server
-addresses, and the names of pending updates. Treat reports like any other
+addresses, proxy server names and PAC script URLs, and the names of pending
+updates. Treat reports like any other
 ticket attachment and follow your organization's data-handling rules before
 sharing them outside the company.
 
@@ -593,7 +610,7 @@ Run a single test module:
 python -m unittest tests.test_network -v
 ```
 
-What the tests cover (155 tests, under a second):
+What the tests cover (171 tests, under a second):
 
 - **Parsing for each OS** using fixtures of real command output in
   [`tests/fixtures/`](tests/fixtures) (macOS `ifconfig`/`df`/`vm_stat`/`scutil`,
@@ -653,7 +670,9 @@ push and pull request:
   non-administrator user, and again with PowerShell Constrained Language Mode
   forced machine-wide (the mode AppLocker/WDAC policies enforce). It first
   proves the language mode is active, then requires core diagnostics to
-  succeed and the update check to be reported as blocked by policy.
+  succeed and the update check to be reported as blocked by policy. It also
+  configures user, WinHTTP and environment proxies and requires all three to
+  be detected without leaking credentials.
 
 [`.github/workflows/release.yml`](.github/workflows/release.yml) runs when a
 version tag such as `v1.1.0` is pushed. It runs the tests, checks that the tag
@@ -672,8 +691,9 @@ its SHA-256 checksum, and publishes a GitHub Release with the notes from
 - **Update checks can be slow.** `softwareupdate -l` and Windows Update
   searches contact the vendor and can take a minute or more (timeout: 180 s).
   Use `--skip-updates` when time matters.
-- **Proxies are not detected.** On networks that require an explicit proxy,
-  ping and DNS can succeed while web traffic still fails.
+- **Proxy detection reports settings, not reachability.** It does not
+  connect to the proxy or download and evaluate PAC scripts. On Linux only
+  environment variables are checked, not GNOME/KDE desktop proxy settings.
 - **Ping may be blocked.** Firewalls often drop ICMP. A failed ping is a
   signal, not proof, which is why findings combine ping with the DNS result.
 - **`--ping-target` accepts IPv4 only.** macOS needs a separate `ping6`

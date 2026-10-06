@@ -1,6 +1,6 @@
 Endpoint Triage Report
 ======================
-Generated 2026-10-05 14:03:22 UTC by endpoint-triage 1.1.1
+Generated 2026-10-05 14:03:22 UTC by endpoint-triage 1.2.0
 Read-only scan: no system settings were changed.
 
 Summary

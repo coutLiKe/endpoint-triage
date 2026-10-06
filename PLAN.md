@@ -48,6 +48,10 @@ python -m endpoint_triage
   finding IDs + `docs/findings.md`, report de-duplication, Windows Update
   error hints, temp-folder fallback, single-file `.pyz` releases, golden-file
   tests, SECURITY.md and CHANGELOG.md.
+- [x] **M14 — Lockdown validation (v1.1.1):** CI runs the real scan as a
+  standard user and under Constrained Language Mode; fixed the CLM bug it found.
+- [x] **M15 — Proxy detection (v1.2.0):** environment, macOS and Windows
+  (WinINET + WinHTTP) proxy settings, credential redaction, CI validation.
 
 ## Out of scope
 

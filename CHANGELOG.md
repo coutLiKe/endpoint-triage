@@ -4,6 +4,18 @@ All notable changes are listed here. Versions follow
 [semantic versioning](https://semver.org/); the JSON report has its own
 `schema_version` (minor = additive, major = breaking).
 
+## [1.2.0] - 2026-10-06
+
+### Added
+- Read-only **proxy detection** (`network.proxy` check): proxy environment
+  variables on every OS, the macOS system proxy, and on Windows both the
+  per-user (WinINET) and machine-wide (WinHTTP) proxy, including PAC scripts
+  and auto-detect. Credentials and query strings in proxy URLs are removed.
+- `network.proxy_configured` INFO finding, documented in docs/findings.md.
+- The Windows CI lockdown job configures all three proxy sources on a real
+  runner and checks they are detected, that no credentials leak, and that
+  detection works under Constrained Language Mode.
+
 ## [1.1.1] - 2026-10-06
 
 ### Fixed
