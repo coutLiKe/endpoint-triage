@@ -223,5 +223,17 @@ class AnalyzeTests(unittest.TestCase):
         self.assertIn("- ... and 2 more", found[0].evidence)
 
 
+
+class FindingsDocTests(unittest.TestCase):
+    def test_every_finding_id_is_documented(self):
+        import re
+        from pathlib import Path
+        root = Path(__file__).resolve().parent.parent
+        code_ids = set(re.findall(r'"([a-z]+\.[a-z_]+)", Severity\.', (root / "endpoint_triage/findings.py").read_text()))
+        doc_ids = set(re.findall(r"^\| `([a-z]+\.[a-z_]+)` \|", (root / "docs/findings.md").read_text(), re.MULTILINE))
+        self.assertTrue(code_ids)
+        self.assertEqual(code_ids - doc_ids, set(), "finding IDs missing from docs/findings.md")
+        self.assertEqual(doc_ids - code_ids, set(), "docs/findings.md lists IDs the code no longer produces")
+
 if __name__ == "__main__":
     unittest.main()
