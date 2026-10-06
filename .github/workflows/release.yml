@@ -1,27 +1,33 @@
 name: Release
 
-# Pushing a version tag (for example `git tag v1.1.0 && git push origin v1.1.0`)
-# builds the single-file .pyz, checks it, and publishes a GitHub Release with
-# the file and its SHA-256 checksum.
+# Pushing a version tag (for example `git tag v1.3.0 && git push origin v1.3.0`)
+# runs the full test suite on every OS (including the Windows lockdown job),
+# then builds the reproducible single-file .pyz, attests its build provenance,
+# and publishes a GitHub Release with the file and its SHA-256 checksum.
 on:
   push:
     tags: ["v*"]
 
 permissions:
-  contents: write  # needed to create the release
+  contents: read
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
+  tests:
+    uses: ./.github/workflows/tests.yml
 
-      - uses: actions/setup-python@v7
+  release:
+    needs: tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # create the release
+      id-token: write      # sign the provenance attestation
+      attestations: write  # store the attestation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.13"
-
-      - name: Run unit tests
-        run: python -W error -m unittest discover
 
       - name: Check the tag matches the package version
         run: |
@@ -36,6 +42,13 @@ jobs:
           python tools/build_zipapp.py
           python dist/endpoint-triage.pyz --version
           cd dist && sha256sum -c endpoint-triage.pyz.sha256
+
+      # Records, with a signature from GitHub, that this exact file was built by
+      # this workflow from this commit. Verify with `gh attestation verify`.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
+        with:
+          subject-path: dist/endpoint-triage.pyz
 
       - name: Publish GitHub Release
         env:
