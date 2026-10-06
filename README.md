@@ -13,7 +13,7 @@ It answers one question:
 > *What basic information and connectivity problems can I identify on this
 > computer without making any changes to the system?*
 
-- Python 3.10+, **standard library only**: nothing to `pip install`
+- Python 3.11+, **standard library only**: nothing to `pip install`
 - Works on **macOS, Windows and Linux**, without admin/root rights
 - Produces a ticket-ready **`.txt` report** and a structured **`.json` report**
 - Highlights **findings** (CRITICAL / WARNING / INFO) at the top of the report
@@ -59,7 +59,7 @@ database, no remediation.
 
 ## Installation
 
-Requirements: **Python 3.10 or newer**. No third-party packages.
+Requirements: **Python 3.11 or newer**. No third-party packages.
 
 ```bash
 git clone https://github.com/coutLiKe/endpoint-triage.git
@@ -528,7 +528,7 @@ the implementation. The git history shows that red → green sequence.
 push and pull request:
 
 - A **matrix** of `ubuntu-latest`, `macos-latest`, `windows-latest` ×
-  Python **3.10** and **3.13** (6 jobs). `fail-fast: false` keeps one OS
+  Python **3.11** and **3.13** (6 jobs). `fail-fast: false` keeps one OS
   failure from hiding results on the others.
 - **No install step** beyond setting up Python, because there are no
   dependencies.

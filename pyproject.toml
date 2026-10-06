@@ -7,7 +7,7 @@ name = "endpoint-triage"
 dynamic = ["version"]
 description = "Cross-platform, read-only endpoint diagnostics for help desk tickets."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = []
 classifiers = [

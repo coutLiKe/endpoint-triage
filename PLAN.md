@@ -11,7 +11,7 @@ python -m endpoint_triage
 
 | Decision | Choice | Why |
 |---|---|---|
-| Python version | 3.10+ | Oldest version still receiving security fixes; allows `str \| None` hints. |
+| Python version | 3.11+ | Oldest version still receiving security fixes (3.10 reaches end of life in October 2026); allows `str \| None` hints. |
 | Dependencies | Standard library only | Runs on any machine with Python; nothing to install. |
 | Test framework | `unittest` (stdlib) | No `pip install` needed in CI or on a technician's laptop. |
 | Windows data source | PowerShell CIM / `Get-Net*` cmdlets piped to `ConvertTo-Json` | Structured output instead of screen-scraping locale-dependent `ipconfig` text. |
