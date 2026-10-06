@@ -1,8 +1,8 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "tool": {
     "name": "endpoint-triage",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "generated_at": "2026-10-05T14:03:22+00:00",
   "duration_seconds": 7.4,
@@ -14,7 +14,7 @@
     "finding_counts": {
       "CRITICAL": 1,
       "WARNING": 1,
-      "INFO": 2
+      "INFO": 1
     },
     "check_counts": {
       "ok": 9,
@@ -23,8 +23,14 @@
       "skipped": 0
     }
   },
+  "scan_options": {
+    "ping_target": "1.1.1.1",
+    "dns_name": "example.com",
+    "skip_updates": false
+  },
   "findings": [
     {
+      "id": "disk.critical_low_space",
       "severity": "CRITICAL",
       "title": "Critically low disk space on C:",
       "explanation": "C: is at or above 95% used or has less than 5.0 GB free. Very low free space can cause failed updates, application crashes and slow performance.",
@@ -33,6 +39,7 @@
       ]
     },
     {
+      "id": "connectivity.dns_failed",
       "severity": "WARNING",
       "title": "DNS resolution failed",
       "explanation": "DNS resolution failed for example.com, but the public IP connectivity test succeeded. This may indicate a DNS configuration or DNS server issue.",
@@ -43,19 +50,12 @@
       ]
     },
     {
+      "id": "system.long_uptime",
       "severity": "INFO",
       "title": "System has not been restarted recently",
       "explanation": "The system has been running for more than 30 days. Pending updates and long-running resource leaks are often resolved by a restart.",
       "evidence": [
         "Uptime: 38 days (last boot 2026-08-28T07:48:00+00:00)"
-      ]
-    },
-    {
-      "severity": "INFO",
-      "title": "Unable to determine: Pending OS updates",
-      "explanation": "This diagnostic could not be collected. See Errors / Unavailable Checks for details.",
-      "evidence": [
-        "failed: powershell exited with code 1: Exception from HRESULT: 0x8024402C"
       ]
     }
   ],
@@ -219,7 +219,7 @@
         "title": "Pending OS updates",
         "status": "failed",
         "data": {},
-        "error": "powershell exited with code 1: Exception from HRESULT: 0x8024402C"
+        "error": "powershell exited with code 1: Exception from HRESULT: 0x8024402C (hint: 0x8024402C: the update server name could not be resolved; check proxy settings and the WSUS server URL)"
       }
     ]
   }

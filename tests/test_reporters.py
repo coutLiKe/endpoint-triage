@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from endpoint_triage import reporters
+from endpoint_triage import __version__, reporters
 from endpoint_triage.models import CheckResult, Report
 from tests.sample_report import build_sample_report
 
@@ -80,7 +80,7 @@ class JsonReportTests(unittest.TestCase):
         self.assertEqual(self.data["schema_version"], "1.1")
         self.assertEqual(self.data["scan_options"],
                          {"ping_target": "1.1.1.1", "dns_name": "example.com", "skip_updates": False})
-        self.assertEqual(self.data["tool"], {"name": "endpoint-triage", "version": "1.0.0"})
+        self.assertEqual(self.data["tool"], {"name": "endpoint-triage", "version": __version__})
         self.assertEqual(self.data["generated_at"], "2026-10-05T14:03:22+00:00")
 
     def test_summary(self):
@@ -127,6 +127,23 @@ class WriteReportTests(unittest.TestCase):
             json.loads(json_path.read_text(encoding="utf-8"))
             self.assertEqual(sorted(p.name for p in out.iterdir()), sorted([text_path.name, json_path.name]))
 
+
+
+class GoldenFileTests(unittest.TestCase):
+    """The published sample reports are golden files: any change to the report
+    format or JSON schema must be intentional. After such a change, run
+    `python tools/regenerate_samples.py` and review the diff."""
+
+    SAMPLE = Path(__file__).resolve().parent.parent / "sample"
+
+    def test_json_matches_published_sample(self):
+        rendered = json.loads(reporters.render_json(build_sample_report(debug_detail=False)))
+        published = json.loads((self.SAMPLE / "sample-report.json").read_text(encoding="utf-8"))
+        self.assertEqual(rendered, published)
+
+    def test_text_matches_published_sample(self):
+        rendered = reporters.render_text(build_sample_report(debug_detail=False))
+        self.assertEqual(rendered, (self.SAMPLE / "sample-report.txt").read_text(encoding="utf-8"))
 
 if __name__ == "__main__":
     unittest.main()

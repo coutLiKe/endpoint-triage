@@ -1,6 +1,6 @@
 Endpoint Triage Report
 ======================
-Generated 2026-10-05 14:03:22 UTC by endpoint-triage 1.0.0
+Generated 2026-10-05 14:03:22 UTC by endpoint-triage 1.1.0
 Read-only scan: no system settings were changed.
 
 Summary
@@ -8,9 +8,10 @@ Summary
   Hostname          : HD-LAPTOP-042.corp.local
   Operating system  : Microsoft Windows 11 Pro
   Overall status    : CRITICAL
-  Findings          : 1 critical, 1 warning, 2 info
+  Findings          : 1 critical, 1 warning, 1 info
   Checks            : 9 ok, 2 failed, 0 unavailable, 0 skipped
   Scan duration     : 7.4 s
+  Test targets      : ping 1.1.1.1, resolve example.com
 
 Findings
 --------
@@ -33,12 +34,6 @@ Findings
   long-running resource leaks are often resolved by a restart.
   Evidence:
     - Uptime: 38 days (last boot 2026-08-28T07:48:00+00:00)
-
-[INFO] Unable to determine: Pending OS updates
-  This diagnostic could not be collected. See Errors / Unavailable Checks
-  for details.
-  Evidence:
-    - failed: powershell exited with code 1: Exception from HRESULT: 0x8024402C
 
 System Information
 ------------------
@@ -79,11 +74,10 @@ Connectivity Tests
 
 Operating System Updates
 ------------------------
-  [FAILED]      Pending OS updates: powershell exited with code 1: Exception from HRESULT: 0x8024402C
+  Pending OS updates: not completed (failed), see Errors / Unavailable Checks
 
 Errors / Unavailable Checks
 ---------------------------
-  [FAILED] connectivity.dns_resolution: DNS lookup for example.com timed out after 5s
-  [FAILED] updates.os: powershell exited with code 1: Exception from HRESULT: 0x8024402C
+  [FAILED] Pending OS updates (updates.os): powershell exited with code 1: Exception from HRESULT: 0x8024402C (hint: 0x8024402C: the update server name could not be resolved; check proxy settings and the WSUS server URL)
 
   Run with --debug for more troubleshooting detail.

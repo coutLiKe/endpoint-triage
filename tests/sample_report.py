@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from endpoint_triage import findings
+from endpoint_triage import __version__, findings
 from endpoint_triage.models import CheckResult, Report
 
 GB = 1024 ** 3
@@ -47,11 +47,13 @@ def build_sample_report(debug_detail: bool = True) -> Report:
         ],
         "updates": [
             CheckResult.failed("updates.os", "Pending OS updates",
-                               "powershell exited with code 1: Exception from HRESULT: 0x8024402C",
+                               ("powershell exited with code 1: Exception from HRESULT: 0x8024402C (hint: 0x8024402C: "
+                                "the update server name could not be resolved; check proxy settings and the "
+                                "WSUS server URL)"),
                                debug="command: ['powershell', ...]\nreturncode: 1" if debug_detail else None),
         ],
     }
-    report = Report("1.0.0", "Windows", datetime(2026, 10, 5, 14, 3, 22, tzinfo=timezone.utc), 7.4, checks,
+    report = Report(__version__, "Windows", datetime(2026, 10, 5, 14, 3, 22, tzinfo=timezone.utc), 7.4, checks,
                     options={"ping_target": "1.1.1.1", "dns_name": "example.com", "skip_updates": False})
     report.findings = findings.analyze(report)
     return report
