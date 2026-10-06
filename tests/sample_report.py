@@ -13,7 +13,7 @@ def build_sample_report(debug_detail: bool = True) -> Report:
         "system": [
             CheckResult.ok("system.os", "Operating system", {
                 "hostname": "HD-LAPTOP-042.corp.local", "os_family": "Windows", "architecture": "AMD64",
-                "kernel": "11", "name": "Microsoft Windows 11 Pro", "version": "10.0.26100", "build": "26100"}),
+                "kernel": "10.0.26100", "name": "Microsoft Windows 11 Pro", "version": "10.0.26100", "build": "26100"}),
             CheckResult.ok("system.uptime", "Uptime and last reboot", {
                 "uptime_seconds": 38 * 86400 + 5 * 3600 + 12 * 60, "last_boot": "2026-08-28T07:48:00+00:00"}),
         ],

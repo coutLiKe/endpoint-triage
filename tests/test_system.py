@@ -75,6 +75,7 @@ class WindowsSystemTests(unittest.TestCase):
         checks = by_id(system.collect("Windows", run=runner, now=NOW))
         self.assertEqual(checks["system.os"].data["name"], "Microsoft Windows 11 Pro")
         self.assertEqual(checks["system.os"].data["build"], "26100")
+        self.assertEqual(checks["system.os"].data["kernel"], "10.0.26100")
         self.assertEqual(checks["system.uptime"].data["last_boot"], "2026-10-01T08:30:00+00:00")
         self.assertEqual(len(runner.calls), 1, "one PowerShell call should serve both checks")
 

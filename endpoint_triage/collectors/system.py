@@ -178,6 +178,8 @@ def _windows(base: dict, run: RunFunc, now: datetime) -> list[CheckResult]:
 
     os_check = CheckResult.ok(OS_ID, OS_TITLE, {
         **base,
+        # platform.release() only says "10" or "11"; the NT kernel version is more useful.
+        "kernel": info.get("Version") or base["kernel"],
         "name": info["Caption"],
         "version": info.get("Version"),
         "build": info.get("BuildNumber"),
