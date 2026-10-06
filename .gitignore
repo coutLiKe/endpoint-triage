@@ -7,3 +7,4 @@ dist/
 triage-reports/
 .DS_Store
 .claude/settings.local.json
+dist/

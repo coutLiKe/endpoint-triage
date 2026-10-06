@@ -1,0 +1,46 @@
+name: Release
+
+# Pushing a version tag (for example `git tag v1.1.0 && git push origin v1.1.0`)
+# builds the single-file .pyz, checks it, and publishes a GitHub Release with
+# the file and its SHA-256 checksum.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write  # needed to create the release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Run unit tests
+        run: python -W error -m unittest discover
+
+      - name: Check the tag matches the package version
+        run: |
+          version=$(python -c "import endpoint_triage; print(endpoint_triage.__version__)")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package version $version" >&2
+            exit 1
+          fi
+
+      - name: Build and verify the single-file release
+        run: |
+          python tools/build_zipapp.py
+          python dist/endpoint-triage.pyz --version
+          cd dist && sha256sum -c endpoint-triage.pyz.sha256
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes=$(awk "/^## \[${GITHUB_REF_NAME#v}\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md)
+          gh release create "$GITHUB_REF_NAME" dist/endpoint-triage.pyz dist/endpoint-triage.pyz.sha256 \
+            --title "endpoint-triage $GITHUB_REF_NAME" --notes "$notes"
