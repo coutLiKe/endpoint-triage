@@ -182,6 +182,27 @@ def _render_updates(check: CheckResult) -> list[str]:
     return lines
 
 
+def _render_proxy(check: CheckResult) -> list[str]:
+    d = check.data
+    if not d["configured"]:
+        lines = [_line("Proxy", f"none detected (checked: {', '.join(d['sources_checked'])})")]
+    else:
+        lines = []
+        for entry in d["proxies"]:
+            lines.append(_line("Proxy", entry["source"]))
+            if entry.get("proxy"):
+                lines.append(_line("Server", entry["proxy"], indent=4))
+            if entry.get("pac_url"):
+                lines.append(_line("PAC script", entry["pac_url"], indent=4))
+            if entry.get("auto_detect"):
+                lines.append(_line("Auto-detect", "enabled (WPAD)", indent=4))
+            if entry.get("bypass"):
+                lines.append(_line("Bypass", entry["bypass"], indent=4))
+    if d.get("note"):
+        lines.append(_line("Note", d["note"]))
+    return lines
+
+
 RENDERERS: dict[str, Callable[[CheckResult], list[str]]] = {
     "system.os": _render_os,
     "system.uptime": _render_uptime,
@@ -190,6 +211,7 @@ RENDERERS: dict[str, Callable[[CheckResult], list[str]]] = {
     "network.interfaces": _render_interfaces,
     "network.gateway": _render_gateway,
     "network.dns_servers": _render_dns_servers,
+    "network.proxy": _render_proxy,
     "connectivity.gateway_ping": _render_ping,
     "connectivity.public_ip_ping": _render_ping,
     "connectivity.dns_resolution": _render_dns_resolution,

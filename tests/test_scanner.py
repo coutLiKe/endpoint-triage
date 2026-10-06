@@ -1,5 +1,6 @@
 """End-to-end scan tests with every command and file faked."""
 
+import functools
 import socket
 import unittest
 from unittest import mock
@@ -8,6 +9,10 @@ from endpoint_triage import scanner
 from endpoint_triage.models import Severity, Status
 from endpoint_triage.runner import ALLOWED_COMMANDS
 from tests.helpers import FakeRunner, fake_files, fixture, ok
+
+
+# Real proxy environment variables on the developer's machine must not leak into tests.
+run_scan = functools.partial(scanner.run_scan, environ={})
 
 
 def resolver(host, port):
@@ -40,9 +45,9 @@ def linux_runner():
 class ScannerTests(unittest.TestCase):
     def test_full_linux_scan(self):
         runner = linux_runner()
-        report = scanner.run_scan("Linux", run=runner, read_file=fake_files(LINUX_FILES), resolver=resolver)
+        report = run_scan("Linux", run=runner, read_file=fake_files(LINUX_FILES), resolver=resolver)
         statuses = {c.id: c.status for c in report.all_checks()}
-        self.assertEqual(len(statuses), 11)
+        self.assertEqual(len(statuses), 12)
         self.assertTrue(all(s == Status.OK for s in statuses.values()), statuses)
         # /mnt/data in the df fixture is 96% full.
         self.assertEqual(report.findings[0].title, "Critically low disk space on /mnt/data")
@@ -50,18 +55,18 @@ class ScannerTests(unittest.TestCase):
         self.assertTrue(all(call[0] in ALLOWED_COMMANDS for call in runner.calls))
 
     def test_dns_failure_flows_through_to_findings(self):
-        report = scanner.run_scan("Linux", run=linux_runner(), read_file=fake_files(LINUX_FILES),
+        report = run_scan("Linux", run=linux_runner(), read_file=fake_files(LINUX_FILES),
                                   resolver=failing_resolver)
         self.assertIn("DNS resolution failed", [f.title for f in report.findings])
 
     def test_everything_missing_still_produces_a_report(self):
-        report = scanner.run_scan("Linux", run=FakeRunner(), read_file=fake_files({}), resolver=failing_resolver)
-        self.assertEqual(len(report.all_checks()), 11)
+        report = run_scan("Linux", run=FakeRunner(), read_file=fake_files({}), resolver=failing_resolver)
+        self.assertEqual(len(report.all_checks()), 12)
         self.assertGreater(len(report.findings), 0)
 
     def test_scan_that_collected_nothing_is_unknown_not_ok(self):
         # Only DNS works; every command is missing. This must never report "OK".
-        report = scanner.run_scan("Linux", run=FakeRunner(), read_file=fake_files({}), resolver=resolver)
+        report = run_scan("Linux", run=FakeRunner(), read_file=fake_files({}), resolver=resolver)
         self.assertNotIn(report.highest_severity(), (Severity.WARNING, Severity.CRITICAL))
         self.assertEqual(report.overall_status(), "UNKNOWN")
         self.assertIn("resources.disks", report.incomplete_core_checks())
@@ -71,12 +76,12 @@ class ScannerTests(unittest.TestCase):
         runner = linux_runner()
         runner.responses["df"] = ok("Filesystem 1024-blocks Used Available Capacity Mounted on\n"
                                     "/dev/sda1 100000000 10000000 90000000 10% /\n")
-        report = scanner.run_scan("Linux", run=runner, read_file=fake_files(files), resolver=resolver)
+        report = run_scan("Linux", run=runner, read_file=fake_files(files), resolver=resolver)
         self.assertEqual(report.overall_status(), "OK")
 
     def test_collector_crash_is_contained(self):
         with mock.patch("endpoint_triage.collectors.resources.collect", side_effect=RuntimeError("bug")):
-            report = scanner.run_scan("Linux", run=linux_runner(), read_file=fake_files(LINUX_FILES),
+            report = run_scan("Linux", run=linux_runner(), read_file=fake_files(LINUX_FILES),
                                       resolver=resolver)
         crashed = report.get("resources.collector")
         self.assertEqual(crashed.status, Status.FAILED)
@@ -86,7 +91,7 @@ class ScannerTests(unittest.TestCase):
 
     def test_skip_updates(self):
         runner = linux_runner()
-        report = scanner.run_scan("Linux", run=runner, read_file=fake_files(LINUX_FILES), resolver=resolver,
+        report = run_scan("Linux", run=runner, read_file=fake_files(LINUX_FILES), resolver=resolver,
                                   skip_updates=True)
         self.assertEqual(report.get("updates.os").status, Status.SKIPPED)
         self.assertFalse(any(call[0] in ("apt", "dnf") for call in runner.calls))
@@ -95,7 +100,7 @@ class ScannerTests(unittest.TestCase):
 
     def test_progress_messages(self):
         messages = []
-        scanner.run_scan("Linux", run=linux_runner(), read_file=fake_files(LINUX_FILES), resolver=resolver,
+        run_scan("Linux", run=linux_runner(), read_file=fake_files(LINUX_FILES), resolver=resolver,
                          progress=messages.append)
         self.assertEqual(len(messages), 5)
 

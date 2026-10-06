@@ -35,6 +35,13 @@ def build_sample_report(debug_detail: bool = True) -> Report:
             ]}),
             CheckResult.ok("network.gateway", "Default gateway", {"gateway": "192.168.1.1", "interface": "Wi-Fi"}),
             CheckResult.ok("network.dns_servers", "DNS servers", {"servers": ["192.168.1.1"]}),
+            CheckResult.ok("network.proxy", "Proxy configuration", {
+                "configured": True,
+                "sources_checked": ["environment variables", "Windows user proxy (WinINET)",
+                                    "Windows system proxy (WinHTTP)"],
+                "proxies": [{"source": "Windows user proxy (WinINET)", "proxy": None,
+                             "pac_url": "http://wpad.corp.example/proxy.pac", "auto_detect": None,
+                             "bypass": None}]}),
         ],
         "connectivity": [
             CheckResult.ok("connectivity.gateway_ping", "Ping default gateway",

@@ -32,6 +32,7 @@ def analyze(report: Report) -> list[Finding]:
     findings += uptime_findings(report.get("system.uptime"))
     findings += interface_findings(report.get("network.interfaces"))
     findings += dns_server_findings(report.get("network.dns_servers"))
+    findings += proxy_findings(report.get("network.proxy"))
     findings += connectivity_findings(
         report.get("network.gateway"),
         report.get("connectivity.gateway_ping"),
@@ -148,6 +149,28 @@ def dns_server_findings(check: CheckResult | None) -> list[Finding]:
     return [Finding("network.no_dns_servers", Severity.WARNING, "No DNS servers configured",
                     "No DNS servers were found, so hostnames cannot be resolved.",
                     ["DNS server list is empty"])]
+
+
+def describe_proxy(entry: dict) -> str:
+    parts = []
+    if entry.get("proxy"):
+        parts.append(f"proxy {entry['proxy']}")
+    if entry.get("pac_url"):
+        parts.append(f"PAC script {entry['pac_url']}")
+    if entry.get("auto_detect"):
+        parts.append("auto-detect (WPAD)")
+    return f"{entry['source']}: {', '.join(parts)}"
+
+
+def proxy_findings(check: CheckResult | None) -> list[Finding]:
+    if not _ok(check) or not check.data.get("configured"):
+        return []
+    return [Finding(
+        "network.proxy_configured", Severity.INFO, "A proxy is configured",
+        "Web traffic from this machine is sent through a proxy or a proxy auto-config (PAC) script. "
+        "The ping and DNS tests do not use the proxy, so they can pass while websites fail if the "
+        "proxy is unreachable, the PAC script cannot be downloaded, or the proxy rejects the user.",
+        [describe_proxy(entry) for entry in check.data["proxies"]])]
 
 
 def _ping_evidence(check: CheckResult | None) -> str:

@@ -224,6 +224,21 @@ class AnalyzeTests(unittest.TestCase):
 
 
 
+class ProxyFindingTests(unittest.TestCase):
+    def test_configured_proxy_is_info_with_evidence(self):
+        check = CheckResult.ok("network.proxy", "Proxy configuration", {
+            "configured": True, "sources_checked": ["environment variables"],
+            "proxies": [{"source": "environment variables", "proxy": "http://proxy:3128", "pac_url": None,
+                         "auto_detect": None, "bypass": None}]})
+        found = findings.proxy_findings(check)
+        self.assertEqual([(f.id, f.severity) for f in found], [("network.proxy_configured", Severity.INFO)])
+        self.assertEqual(found[0].evidence, ["environment variables: proxy http://proxy:3128"])
+
+    def test_no_proxy_no_finding(self):
+        check = CheckResult.ok("network.proxy", "Proxy configuration",
+                               {"configured": False, "proxies": [], "sources_checked": []})
+        self.assertEqual(findings.proxy_findings(check), [])
+
 class FindingsDocTests(unittest.TestCase):
     def test_every_finding_id_is_documented(self):
         import re

@@ -35,7 +35,7 @@ class TextReportTests(unittest.TestCase):
     def test_summary(self):
         self.assertIn("Hostname          : HD-LAPTOP-042.corp.local", self.text)
         self.assertIn("Overall status    : CRITICAL", self.text)
-        self.assertIn("1 critical, 1 warning, 1 info", self.text)
+        self.assertIn("1 critical, 1 warning, 2 info", self.text)
 
     def test_findings_have_severity_title_explanation_evidence(self):
         self.assertIn("[CRITICAL] Critically low disk space on C:", self.text)
@@ -86,8 +86,8 @@ class JsonReportTests(unittest.TestCase):
     def test_summary(self):
         summary = self.data["summary"]
         self.assertEqual(summary["overall_status"], "CRITICAL")
-        self.assertEqual(summary["finding_counts"], {"CRITICAL": 1, "WARNING": 1, "INFO": 1})
-        self.assertEqual(summary["check_counts"], {"ok": 9, "failed": 2, "unavailable": 0, "skipped": 0})
+        self.assertEqual(summary["finding_counts"], {"CRITICAL": 1, "WARNING": 1, "INFO": 2})
+        self.assertEqual(summary["check_counts"], {"ok": 10, "failed": 2, "unavailable": 0, "skipped": 0})
 
     def test_findings_shape(self):
         for finding in self.data["findings"]:

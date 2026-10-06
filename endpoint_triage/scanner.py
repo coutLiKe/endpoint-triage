@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from endpoint_triage import __version__, findings
-from endpoint_triage.collectors import connectivity, network, resources, system, updates
+from endpoint_triage.collectors import connectivity, network, proxy, resources, system, updates
 from endpoint_triage.models import CheckResult, Report
 from endpoint_triage.runner import RunFunc, read_text_file, run_command
 
@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 def run_scan(os_name: str | None = None, run: RunFunc = run_command, read_file=read_text_file,
              resolver=socket.getaddrinfo, progress: Callable[[str], None] = lambda message: None,
              ping_target: str = connectivity.PUBLIC_IP_TARGET, dns_name: str = connectivity.DNS_TEST_HOSTNAME,
-             skip_updates: bool = False) -> Report:
+             skip_updates: bool = False, environ=None) -> Report:
     os_name = os_name or platform.system()
     started_at = datetime.now(timezone.utc)
     started = time.monotonic()
@@ -34,7 +34,8 @@ def run_scan(os_name: str | None = None, run: RunFunc = run_command, read_file=r
     checks["resources"] = _guarded("resources", lambda: resources.collect(os_name, run, read_file))
 
     progress("Collecting network configuration")
-    checks["network"] = _guarded("network", lambda: network.collect(os_name, run, read_file))
+    checks["network"] = (_guarded("network", lambda: network.collect(os_name, run, read_file))
+                         + _guarded("proxy", lambda: proxy.collect(os_name, run, environ)))
 
     progress("Testing connectivity (gateway, public IP, DNS)")
     gateway = next((c for c in checks["network"] if c.id == network.GATEWAY_ID), None)

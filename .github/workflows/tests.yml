@@ -105,6 +105,34 @@ jobs:
           if ($proc.ExitCode -gt 2) { throw "Core diagnostics failed for a standard user" }
           exit 0  # the scan's own exit code (0-2) was checked above
 
+      - name: Detect configured proxies
+        shell: powershell
+        run: |
+          # Configure all three proxy sources on the throwaway runner, scan, then restore.
+          $ie = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+          netsh winhttp set proxy proxy-server="winhttp.proxy.test:3128" bypass-list="<local>" | Out-Null
+          Set-ItemProperty -Path $ie -Name ProxyEnable -Value 1
+          Set-ItemProperty -Path $ie -Name ProxyServer -Value "user.proxy.test:8080"
+          $env:HTTPS_PROXY = "http://ciuser:SuperSecret123@env.proxy.test:3128"
+          try {
+            python dist/endpoint-triage.pyz --skip-updates --output proxy-reports
+            $report = Get-Content proxy-reports/*.json -Raw | ConvertFrom-Json
+            $check = $report.sections.network | Where-Object { $_.id -eq "network.proxy" }
+            $check | ConvertTo-Json -Depth 5
+            $servers = @($check.data.proxies | ForEach-Object { $_.proxy })
+            foreach ($expected in "http://env.proxy.test:3128", "user.proxy.test:8080", "winhttp.proxy.test:3128") {
+              if ($servers -notcontains $expected) { throw "Proxy $expected was not detected" }
+            }
+            if (Select-String -Path proxy-reports/* -Pattern "SuperSecret123" -Quiet) {
+              throw "Proxy credentials leaked into a report"
+            }
+          } finally {
+            netsh winhttp reset proxy | Out-Null
+            Set-ItemProperty -Path $ie -Name ProxyEnable -Value 0
+            Remove-ItemProperty -Path $ie -Name ProxyServer -ErrorAction SilentlyContinue
+          }
+          exit 0
+
       - name: Scan under Constrained Language Mode
         shell: powershell
         run: |
@@ -125,6 +153,9 @@ jobs:
             if (-not (Select-String -Path clm-reports/*.txt -Pattern "blocked by policy" -Quiet)) {
               throw "Expected the update check to be reported as blocked by policy"
             }
+            $report = Get-Content clm-reports/*.json -Raw | ConvertFrom-Json
+            $proxyCheck = $report.sections.network | Where-Object { $_.id -eq "network.proxy" }
+            if ($proxyCheck.status -ne "ok") { throw "Proxy detection failed under Constrained Language Mode" }
           } finally {
             [Environment]::SetEnvironmentVariable("__PSLockdownPolicy", $null, "Machine")
           }
@@ -137,5 +168,6 @@ jobs:
           name: triage-report-windows-lockdown
           path: |
             clm-reports/
+            proxy-reports/
             standard-user-reports/
           if-no-files-found: ignore
