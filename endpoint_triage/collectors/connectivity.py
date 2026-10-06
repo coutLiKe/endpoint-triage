@@ -27,11 +27,14 @@ PING_TIMEOUT = 15  # seconds for the whole ping command
 
 
 def collect(os_name: str, gateway_check: CheckResult | None, run: RunFunc = run_command,
-            resolver=socket.getaddrinfo) -> list[CheckResult]:
+            resolver=socket.getaddrinfo, ping_target: str = PUBLIC_IP_TARGET,
+            dns_name: str = DNS_TEST_HOSTNAME) -> list[CheckResult]:
+    """Targets default to 1.1.1.1 / example.com; corporate networks can point
+    them at an internal resolver or intranet host with --ping-target/--dns-name."""
     return [
         _gateway_ping(os_name, gateway_check, run),
-        ping(PUBLIC_PING_ID, PUBLIC_PING_TITLE, os_name, PUBLIC_IP_TARGET, run),
-        check_dns_resolution(DNS_TEST_HOSTNAME, resolver=resolver),
+        ping(PUBLIC_PING_ID, PUBLIC_PING_TITLE, os_name, ping_target, run),
+        check_dns_resolution(dns_name, resolver=resolver),
     ]
 
 

@@ -51,6 +51,7 @@ def build_sample_report(debug_detail: bool = True) -> Report:
                                debug="command: ['powershell', ...]\nreturncode: 1" if debug_detail else None),
         ],
     }
-    report = Report("1.0.0", "Windows", datetime(2026, 10, 5, 14, 3, 22, tzinfo=timezone.utc), 7.4, checks)
+    report = Report("1.0.0", "Windows", datetime(2026, 10, 5, 14, 3, 22, tzinfo=timezone.utc), 7.4, checks,
+                    options={"ping_target": "1.1.1.1", "dns_name": "example.com", "skip_updates": False})
     report.findings = findings.analyze(report)
     return report

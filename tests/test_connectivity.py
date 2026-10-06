@@ -112,6 +112,22 @@ class PingTests(unittest.TestCase):
         self.assertFalse(public.data["reachable"])
 
 
+class CustomTargetTests(unittest.TestCase):
+    def test_custom_ping_and_dns_targets(self):
+        seen = []
+
+        def resolver(host, port):
+            seen.append(host)
+            return [(2, 1, 6, "", ("10.0.0.80", 0))]
+
+        runner = FakeRunner({"10.0.0.53": ok(LINUX_PING_OK)})
+        checks = by_id(connectivity.collect("Linux", None, run=runner, resolver=resolver,
+                                            ping_target="10.0.0.53", dns_name="intranet.corp.example"))
+        self.assertEqual(checks["connectivity.public_ip_ping"].data["target"], "10.0.0.53")
+        self.assertEqual(checks["connectivity.dns_resolution"].data["hostname"], "intranet.corp.example")
+        self.assertEqual(seen, ["intranet.corp.example"])
+
+
 class GatewayPingSkipTests(unittest.TestCase):
     def test_skipped_without_gateway(self):
         no_gateway = CheckResult.ok("network.gateway", "Default gateway", {"gateway": None, "interface": None})

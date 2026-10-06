@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import logging
+import re
 import sys
 from pathlib import Path
 
 from endpoint_triage import __version__
 from endpoint_triage.reporters import overall_status, write_reports
+from endpoint_triage.collectors.connectivity import DNS_TEST_HOSTNAME, PUBLIC_IP_TARGET
 from endpoint_triage.scanner import run_scan
 
 # Exit codes follow the Nagios/monitoring convention so scripts and RMM
@@ -22,6 +25,25 @@ EXIT_USAGE = 64      # Invalid command-line arguments (EX_USAGE)
 EXIT_INTERRUPTED = 130  # Stopped with Ctrl+C
 
 DEFAULT_OUTPUT_DIR = "triage-reports"
+
+# RFC 1123 hostname: dot-separated labels of letters, digits and hyphens,
+# no label starting or ending with a hyphen.
+HOSTNAME_PATTERN = re.compile(r"^(?=.{1,253}\.?$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*\.?$")
+
+
+def ipv4_address(value: str) -> str:
+    """Validate --ping-target. Strict validation also stops values such as
+    "-f" from being passed to ping as an option (argument injection)."""
+    try:
+        return str(ipaddress.IPv4Address(value))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a valid IPv4 address: {value!r}") from None
+
+
+def hostname(value: str) -> str:
+    if not HOSTNAME_PATTERN.match(value):
+        raise argparse.ArgumentTypeError(f"not a valid hostname: {value!r}")
+    return value
 
 
 class _ArgumentParser(argparse.ArgumentParser):
@@ -41,6 +63,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT_DIR, metavar="DIR",
                         help=f"directory to write reports into (default: ./{DEFAULT_OUTPUT_DIR})")
+    parser.add_argument("--ping-target", type=ipv4_address, default=PUBLIC_IP_TARGET, metavar="IP",
+                        help=f"IPv4 address for the internet ping test (default: {PUBLIC_IP_TARGET})")
+    parser.add_argument("--dns-name", type=hostname, default=DNS_TEST_HOSTNAME, metavar="HOST",
+                        help=f"hostname for the DNS resolution test (default: {DNS_TEST_HOSTNAME})")
+    parser.add_argument("--skip-updates", action="store_true",
+                        help="skip the pending-update check (it can take minutes and contacts update servers)")
     parser.add_argument("--debug", action="store_true",
                         help="log commands to stderr and include troubleshooting detail in the reports")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -62,7 +90,8 @@ def main(argv: list[str] | None = None) -> int:
     # Progress goes to stderr so stdout stays clean for the summary.
     print("Endpoint triage: running read-only diagnostics...", file=sys.stderr)
     try:
-        report = run_scan(progress=lambda message: print(f"  - {message}", file=sys.stderr))
+        report = run_scan(progress=lambda message: print(f"  - {message}", file=sys.stderr),
+                          ping_target=args.ping_target, dns_name=args.dns_name, skip_updates=args.skip_updates)
         text_path, json_path = write_reports(report, Path(args.output), debug=args.debug)
     except KeyboardInterrupt:
         print("\nInterrupted; no report was written.", file=sys.stderr)

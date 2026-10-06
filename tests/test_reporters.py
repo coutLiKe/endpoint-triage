@@ -71,8 +71,10 @@ class JsonReportTests(unittest.TestCase):
 
     def test_top_level_structure(self):
         self.assertEqual(set(self.data), {"schema_version", "tool", "generated_at", "duration_seconds",
-                                          "summary", "findings", "sections"})
-        self.assertEqual(self.data["schema_version"], "1.0")
+                                          "summary", "scan_options", "findings", "sections"})
+        self.assertEqual(self.data["schema_version"], "1.1")
+        self.assertEqual(self.data["scan_options"],
+                         {"ping_target": "1.1.1.1", "dns_name": "example.com", "skip_updates": False})
         self.assertEqual(self.data["tool"], {"name": "endpoint-triage", "version": "1.0.0"})
         self.assertEqual(self.data["generated_at"], "2026-10-05T14:03:22+00:00")
 

@@ -19,7 +19,9 @@ log = logging.getLogger(__name__)
 
 
 def run_scan(os_name: str | None = None, run: RunFunc = run_command, read_file=read_text_file,
-             resolver=socket.getaddrinfo, progress: Callable[[str], None] = lambda message: None) -> Report:
+             resolver=socket.getaddrinfo, progress: Callable[[str], None] = lambda message: None,
+             ping_target: str = connectivity.PUBLIC_IP_TARGET, dns_name: str = connectivity.DNS_TEST_HOSTNAME,
+             skip_updates: bool = False) -> Report:
     os_name = os_name or platform.system()
     started_at = datetime.now(timezone.utc)
     started = time.monotonic()
@@ -36,13 +38,18 @@ def run_scan(os_name: str | None = None, run: RunFunc = run_command, read_file=r
 
     progress("Testing connectivity (gateway, public IP, DNS)")
     gateway = next((c for c in checks["network"] if c.id == network.GATEWAY_ID), None)
-    checks["connectivity"] = _guarded("connectivity",
-                                      lambda: connectivity.collect(os_name, gateway, run, resolver))
+    checks["connectivity"] = _guarded("connectivity", lambda: connectivity.collect(
+        os_name, gateway, run, resolver, ping_target=ping_target, dns_name=dns_name))
 
-    progress("Checking for pending OS updates (this can take a minute)")
-    checks["updates"] = _guarded("updates", lambda: updates.collect(os_name, run))
+    if skip_updates:
+        checks["updates"] = [CheckResult.skipped(updates.UPDATES_ID, updates.UPDATES_TITLE,
+                                                 "skipped with --skip-updates")]
+    else:
+        progress("Checking for pending OS updates (this can take a minute)")
+        checks["updates"] = _guarded("updates", lambda: updates.collect(os_name, run))
 
-    report = Report(__version__, os_name, started_at, time.monotonic() - started, checks)
+    options = {"ping_target": ping_target, "dns_name": dns_name, "skip_updates": skip_updates}
+    report = Report(__version__, os_name, started_at, time.monotonic() - started, checks, options=options)
     report.findings = findings.analyze(report)
     return report
 

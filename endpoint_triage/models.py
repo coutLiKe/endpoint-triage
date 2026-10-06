@@ -111,6 +111,9 @@ class Report:
     duration_seconds: float
     checks: dict[str, list[CheckResult]]
     findings: list[Finding] = field(default_factory=list)
+    # The settings this scan ran with (targets, skipped checks), so a reader
+    # knows exactly what was tested.
+    options: dict[str, Any] = field(default_factory=dict)
 
     def all_checks(self) -> list[CheckResult]:
         return [check for key, _ in SECTIONS for check in self.checks.get(key, [])]

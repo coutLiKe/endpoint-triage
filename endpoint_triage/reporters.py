@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 from endpoint_triage.models import SECTIONS, CheckResult, Report, Severity, Status
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 WIDTH = 76
 LABEL_WIDTH = 18
 
@@ -210,6 +210,16 @@ def _render_check(check: CheckResult) -> list[str]:
 
 # ------------------------------------------------------------ text report
 
+def _option_lines(report: Report) -> list[str]:
+    options = report.options
+    if not options:
+        return []
+    lines = [_line("Test targets", f"ping {options['ping_target']}, resolve {options['dns_name']}")]
+    if options.get("skip_updates"):
+        lines.append(_line("Skipped", "OS update check (--skip-updates)"))
+    return lines
+
+
 def render_text(report: Report, debug: bool = False) -> str:
     hostname, os_label = _summary_fields(report)
     findings = finding_counts(report)
@@ -233,6 +243,7 @@ def render_text(report: Report, debug: bool = False) -> str:
         _line("Findings", f"{findings['CRITICAL']} critical, {findings['WARNING']} warning, {findings['INFO']} info"),
         _line("Checks", ", ".join(f"{count} {status}" for status, count in checks.items())),
         _line("Scan duration", f"{report.duration_seconds:.1f} s"),
+        *_option_lines(report),
     ]
 
     lines += _heading("Findings")
@@ -287,6 +298,7 @@ def report_to_dict(report: Report, debug: bool = False) -> dict[str, Any]:
             "finding_counts": finding_counts(report),
             "check_counts": check_counts(report),
         },
+        "scan_options": report.options,
         "findings": [f.to_dict() for f in report.findings],
         "sections": {
             key: [check.to_dict(include_debug=debug) for check in report.checks.get(key, [])]

@@ -84,6 +84,15 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("Traceback", crashed.debug)
         self.assertEqual(report.get("network.gateway").status, Status.OK)  # other sections unaffected
 
+    def test_skip_updates(self):
+        runner = linux_runner()
+        report = scanner.run_scan("Linux", run=runner, read_file=fake_files(LINUX_FILES), resolver=resolver,
+                                  skip_updates=True)
+        self.assertEqual(report.get("updates.os").status, Status.SKIPPED)
+        self.assertFalse(any(call[0] in ("apt", "dnf") for call in runner.calls))
+        self.assertTrue(report.options["skip_updates"])
+        self.assertNotIn("updates", " ".join(f.title.lower() for f in report.findings))
+
     def test_progress_messages(self):
         messages = []
         scanner.run_scan("Linux", run=linux_runner(), read_file=fake_files(LINUX_FILES), resolver=resolver,

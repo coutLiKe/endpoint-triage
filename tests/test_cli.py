@@ -80,6 +80,25 @@ class MainTests(unittest.TestCase):
         for option in ("--output", "--debug", "--version", "Exit codes"):
             self.assertIn(option, out)
 
+    def test_target_flags_are_passed_to_the_scan(self):
+        scan = mock.Mock(return_value=build_sample_report())
+        with tempfile.TemporaryDirectory() as tmp, mock.patch("endpoint_triage.cli.run_scan", scan), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            cli.main(["-o", tmp, "--ping-target", "10.0.0.53", "--dns-name", "intranet.corp.example",
+                      "--skip-updates"])
+        kwargs = scan.call_args.kwargs
+        self.assertEqual(kwargs["ping_target"], "10.0.0.53")
+        self.assertEqual(kwargs["dns_name"], "intranet.corp.example")
+        self.assertTrue(kwargs["skip_updates"])
+
+    def test_invalid_targets_are_rejected(self):
+        # The "--flag=value" form is how a value starting with "-" reaches the validator.
+        for argv in (["--ping-target", "999.1.1.1"], ["--ping-target=-f"], ["--ping-target", "example.com"],
+                     ["--dns-name", "bad_host!"], ["--dns-name=-oProxyCommand=x"], ["--dns-name", "a" * 300]):
+            code, _, err = run_cli(*argv)
+            self.assertEqual(code, cli.EXIT_USAGE, argv)
+            self.assertIn("not a valid", err)
+
     def test_bad_argument_uses_usage_exit_code(self):
         code, _, err = run_cli("--frobnicate")
         self.assertEqual(code, cli.EXIT_USAGE)
