@@ -1,0 +1,48 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false  # one OS failing should not hide results from the others
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # No dependencies to install: the tool and its tests use only the standard library.
+      - name: Run unit tests
+        run: python -m unittest discover -v
+
+      # Run a real scan on the runner to prove the OS commands and parsers
+      # work on a real machine. Exit codes 0-2 mean the scan completed
+      # (findings on a CI runner are expected); 3 or higher means the tool failed.
+      - name: Smoke test (real scan)
+        if: matrix.python-version == '3.13'
+        shell: bash
+        run: |
+          set +e
+          python -m endpoint_triage --output triage-reports
+          code=$?
+          echo "endpoint-triage exit code: $code"
+          cat triage-reports/*.txt
+          [ "$code" -le 2 ]
+
+      - name: Upload sample reports
+        if: matrix.python-version == '3.13' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: triage-report-${{ matrix.os }}
+          path: triage-reports/
+          if-no-files-found: ignore
