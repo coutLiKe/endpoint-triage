@@ -11,8 +11,17 @@ from endpoint_triage.runner import ALLOWED_COMMANDS
 from tests.helpers import FakeRunner, fake_files, fixture, ok
 
 
-# Real proxy environment variables on the developer's machine must not leak into tests.
-run_scan = functools.partial(scanner.run_scan, environ={})
+class _FakeConnection:
+    def close(self):
+        pass
+
+
+def fake_connector(address, timeout=None):
+    return _FakeConnection()
+
+
+# Real proxy variables and real TCP connections must not leak into tests.
+run_scan = functools.partial(scanner.run_scan, environ={}, connector=fake_connector)
 
 
 def resolver(host, port):
@@ -47,7 +56,9 @@ class ScannerTests(unittest.TestCase):
         runner = linux_runner()
         report = run_scan("Linux", run=runner, read_file=fake_files(LINUX_FILES), resolver=resolver)
         statuses = {c.id: c.status for c in report.all_checks()}
-        self.assertEqual(len(statuses), 12)
+        self.assertEqual(len(statuses), 14)
+        # Everything runs except the proxy probe, which is skipped because no proxy is configured.
+        self.assertEqual(statuses.pop("connectivity.proxy_tcp"), Status.SKIPPED)
         self.assertTrue(all(s == Status.OK for s in statuses.values()), statuses)
         # /mnt/data in the df fixture is 96% full.
         self.assertEqual(report.findings[0].title, "Critically low disk space on /mnt/data")
@@ -61,7 +72,7 @@ class ScannerTests(unittest.TestCase):
 
     def test_everything_missing_still_produces_a_report(self):
         report = run_scan("Linux", run=FakeRunner(), read_file=fake_files({}), resolver=failing_resolver)
-        self.assertEqual(len(report.all_checks()), 12)
+        self.assertEqual(len(report.all_checks()), 14)
         self.assertGreater(len(report.findings), 0)
 
     def test_scan_that_collected_nothing_is_unknown_not_ok(self):

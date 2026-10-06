@@ -1,3 +1,4 @@
+import socket
 import unittest
 
 from endpoint_triage.collectors import connectivity
@@ -50,9 +51,27 @@ def fake_resolver(host, port):
     return [(2, 1, 6, "", ("93.184.215.14", 0))]
 
 
+class FakeConnection:
+    def close(self):
+        pass
+
+
+def connector_ok(address, timeout=None):
+    return FakeConnection()
+
+
+def connector_refused(address, timeout=None):
+    raise ConnectionRefusedError(61, "Connection refused")
+
+
+def connector_timeout(address, timeout=None):
+    raise TimeoutError("timed out")
+
+
 def collect(*args, **kwargs):
-    """connectivity.collect with a fake DNS resolver so tests never hit the network."""
+    """connectivity.collect with a fake resolver and connector so tests never hit the network."""
     kwargs.setdefault("resolver", fake_resolver)
+    kwargs.setdefault("connector", connector_ok)
     return connectivity.collect(*args, **kwargs)
 
 
@@ -143,6 +162,69 @@ class GatewayPingSkipTests(unittest.TestCase):
         self.assertEqual(gateway.status, Status.SKIPPED)
         self.assertIn("could not be determined", gateway.error)
 
+
+
+class TcpTests(unittest.TestCase):
+    def test_tcp_success_and_failures(self):
+        ok_check = connectivity.check_tcp("t", "T", "example.com", 443, connector=connector_ok)
+        self.assertEqual(ok_check.status, Status.OK)
+        self.assertTrue(ok_check.data["reachable"])
+        refused = connectivity.check_tcp("t", "T", "example.com", 443, connector=connector_refused)
+        self.assertEqual(refused.status, Status.FAILED)
+        self.assertIn("Connection refused", refused.error)
+        timed_out = connectivity.check_tcp("t", "T", "example.com", 443, connector=connector_timeout)
+        self.assertIn("timed out", timed_out.error)
+
+    def test_tcp_targets_dns_name_on_443(self):
+        seen = []
+
+        def connector(address, timeout=None):
+            seen.append(address)
+            return FakeConnection()
+
+        checks = by_id(collect("Linux", None, run=FakeRunner(), dns_name="intranet.corp.example", connector=connector))
+        self.assertEqual(seen, [("intranet.corp.example", 443)])
+        self.assertEqual(checks["connectivity.tcp_https"].status, Status.OK)
+        self.assertEqual(checks["connectivity.proxy_tcp"].status, Status.SKIPPED)
+
+    def test_tcp_skipped_when_dns_fails(self):
+        def bad_resolver(host, port):
+            raise socket.gaierror(-2, "Name or service not known")
+
+        checks = by_id(collect("Linux", None, run=FakeRunner(), resolver=bad_resolver))
+        self.assertEqual(checks["connectivity.tcp_https"].status, Status.SKIPPED)
+
+    def test_proxy_probe_connects_to_proxy_host_and_port(self):
+        seen = []
+
+        def connector(address, timeout=None):
+            seen.append(address)
+            return FakeConnection()
+
+        proxy_check = CheckResult.ok("network.proxy", "Proxy", {"configured": True, "sources_checked": [], "proxies": [
+            {"source": "Windows user proxy (WinINET)", "proxy": "http=proxy.corp.example:3128;https=sproxy.corp.example:8443",
+             "pac_url": None, "auto_detect": None, "bypass": None}]})
+        checks = by_id(collect("Windows", None, run=FakeRunner(), proxy_check=proxy_check, connector=connector))
+        self.assertIn(("sproxy.corp.example", 8443), seen)
+        self.assertEqual(checks["connectivity.proxy_tcp"].data["target"], "sproxy.corp.example")
+
+    def test_pac_only_proxy_is_not_probed(self):
+        proxy_check = CheckResult.ok("network.proxy", "Proxy", {"configured": True, "sources_checked": [], "proxies": [
+            {"source": "macOS system proxy", "proxy": None, "pac_url": "http://wpad/wpad.dat",
+             "auto_detect": False, "bypass": None}]})
+        checks = by_id(collect("Darwin", None, run=FakeRunner(), proxy_check=proxy_check))
+        self.assertEqual(checks["connectivity.proxy_tcp"].status, Status.SKIPPED)
+        self.assertIn("PAC", checks["connectivity.proxy_tcp"].error)
+
+    def test_parse_proxy_endpoint(self):
+        from endpoint_triage.collectors.proxy import parse_proxy_endpoint
+        self.assertEqual(parse_proxy_endpoint("proxy.corp.example:8080"), ("proxy.corp.example", 8080))
+        self.assertEqual(parse_proxy_endpoint("http://proxy.corp.example:3128"), ("proxy.corp.example", 3128))
+        self.assertEqual(parse_proxy_endpoint("proxy.corp.example"), ("proxy.corp.example", 80))
+        self.assertEqual(parse_proxy_endpoint("socks://s.corp.example"), ("s.corp.example", 1080))
+        self.assertEqual(parse_proxy_endpoint("http=a:80;https=b:443"), ("b", 443))
+        self.assertIsNone(parse_proxy_endpoint(""))
+        self.assertIsNone(parse_proxy_endpoint("proxy:notaport"))
 
 if __name__ == "__main__":
     unittest.main()

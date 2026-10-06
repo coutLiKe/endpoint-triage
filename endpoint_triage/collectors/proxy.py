@@ -54,6 +54,33 @@ def redact(value: str) -> str:
     return urlunsplit((parts.scheme, host, parts.path, "", ""))
 
 
+DEFAULT_PROXY_PORTS = {"http": 80, "https": 443, "socks": 1080, "socks5": 1080, "socks4": 1080}
+
+
+def parse_proxy_endpoint(value: str) -> tuple[str, int] | None:
+    """Turn a proxy setting into (host, port) for the TCP reachability probe.
+
+    Handles "proxy:8080", "http://proxy:8080" and Windows per-protocol lists
+    such as "http=proxy:80;https=proxy:443" (the HTTPS entry is preferred).
+    """
+    value = value.strip()
+    if "=" in value:
+        parts = dict(item.split("=", 1) for item in value.split(";") if "=" in item)
+        value = parts.get("https") or parts.get("http") or next(iter(parts.values()), "")
+    if not value:
+        return None
+    if "://" not in value:
+        value = "http://" + value
+    parts = urlsplit(value)
+    try:
+        port = parts.port
+    except ValueError:
+        return None
+    if not parts.hostname:
+        return None
+    return parts.hostname, port or DEFAULT_PROXY_PORTS.get(parts.scheme, 80)
+
+
 def collect(os_name: str, run: RunFunc = run_command, environ: Mapping[str, str] | None = None) -> list[CheckResult]:
     environ = os.environ if environ is None else environ
     proxies, sources = [], ["environment variables"]

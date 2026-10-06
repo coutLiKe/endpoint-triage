@@ -204,6 +204,11 @@ def _render_proxy(check: CheckResult) -> list[str]:
     return lines
 
 
+def _render_tcp(check: CheckResult) -> list[str]:
+    d = check.data
+    return [f"  [OK]          {check.title} ({d['target']}:{d['port']}): connected in {d['duration_ms']:.0f} ms"]
+
+
 RENDERERS: dict[str, Callable[[CheckResult], list[str]]] = {
     "system.os": _render_os,
     "system.uptime": _render_uptime,
@@ -216,14 +221,17 @@ RENDERERS: dict[str, Callable[[CheckResult], list[str]]] = {
     "connectivity.gateway_ping": _render_ping,
     "connectivity.public_ip_ping": _render_ping,
     "connectivity.dns_resolution": _render_dns_resolution,
+    "connectivity.tcp_https": _render_tcp,
+    "connectivity.proxy_tcp": _render_tcp,
     "updates.os": _render_updates,
 }
 
 
 def is_test_result(check: CheckResult) -> bool:
-    """A failed ping or DNS lookup is a result ("no reply"), not a check that
-    could not run, so it belongs with the other connectivity results."""
-    return check.id.startswith("connectivity.") and check.status == Status.FAILED
+    """A failed or not-applicable connectivity test ("no reply", "no proxy
+    configured") is a result, not a check that could not run, so it is shown
+    with the other connectivity results rather than under Errors."""
+    return check.id.startswith("connectivity.") and check.status in (Status.FAILED, Status.SKIPPED)
 
 
 def checks_not_completed(report: Report) -> list[CheckResult]:

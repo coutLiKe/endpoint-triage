@@ -116,11 +116,11 @@ class InterfaceFindingTests(unittest.TestCase):
         found = findings.interface_findings(interfaces(iface("en0", "down")))
         self.assertEqual(titles(found), [(Severity.WARNING, "No active network connection")])
 
-    def test_multiple_disconnected_is_info(self):
+    def test_unused_disconnected_ports_are_not_a_finding(self):
+        # Thunderbolt/Bluetooth/spare ports are down on every laptop: listing them is enough.
         found = findings.interface_findings(interfaces(
             iface("en0", "up", ["10.0.0.5/24"]), iface("en1", "down"), iface("en2", "down")))
-        self.assertEqual(titles(found), [(Severity.INFO, "Multiple network interfaces are disconnected")])
-        self.assertIn("en1, en2", found[0].evidence[0])
+        self.assertEqual(found, [])
 
     def test_no_dns_servers(self):
         empty = CheckResult.ok("network.dns_servers", "DNS servers", {"servers": []})
@@ -173,6 +173,60 @@ class ConnectivityClassificationTests(unittest.TestCase):
         missing = CheckResult.unavailable("connectivity.public_ip_ping", "Ping public IP address", "ping command not found")
         self.assertEqual(findings.connectivity_findings(GATEWAY, gw_ping(True), missing, dns(True)), [])
 
+
+
+def tcp(ok):
+    if ok:
+        return CheckResult.ok("connectivity.tcp_https", "TCP", {"target": "example.com", "port": 443,
+                                                                 "reachable": True, "duration_ms": 20.0})
+    return CheckResult.failed("connectivity.tcp_https", "TCP", "connection to example.com:443 timed out after 5s",
+                              data={"target": "example.com", "port": 443, "reachable": False, "duration_ms": None})
+
+
+def proxy(configured):
+    return CheckResult.ok("network.proxy", "Proxy", {"configured": configured, "sources_checked": [], "proxies": [
+        {"source": "environment variables", "proxy": "http://proxy:3128", "pac_url": None,
+         "auto_detect": None, "bypass": None}] if configured else []})
+
+
+class TcpClassificationTests(unittest.TestCase):
+    def classify(self, gw, public, dns_ok, tcp_check, proxy_check=None, proxy_tcp=None):
+        return titles(findings.connectivity_findings(GATEWAY, gw_ping(gw), ip_ping(public), dns(dns_ok),
+                                                     tcp=tcp_check, proxy_check=proxy_check, proxy_tcp=proxy_tcp))
+
+    def test_tcp_works_and_pings_blocked_is_info(self):
+        self.assertEqual(self.classify(False, False, True, tcp(True)), [(Severity.INFO, "Ping appears to be blocked")])
+        self.assertEqual(self.classify(True, False, True, tcp(True)),
+                         [(Severity.INFO, "Public IP address did not respond to ping")])
+        self.assertEqual(self.classify(True, True, True, tcp(True)), [])
+
+    def test_https_blocked_without_proxy_is_warning(self):
+        self.assertEqual(self.classify(True, True, True, tcp(False)),
+                         [(Severity.WARNING, "Outbound HTTPS connection failed")])
+
+    def test_direct_https_blocked_with_proxy_is_info(self):
+        self.assertEqual(self.classify(False, False, True, tcp(False), proxy(True)),
+                         [(Severity.INFO, "Direct HTTPS is blocked; a proxy is configured")])
+
+    def test_unreachable_proxy_is_warning(self):
+        dead_proxy = CheckResult.failed("connectivity.proxy_tcp", "Proxy TCP", "connection to proxy:3128 refused",
+                                        data={"target": "proxy", "port": 3128, "reachable": False, "duration_ms": None})
+        found = self.classify(False, False, True, tcp(False), proxy(True), dead_proxy)
+        self.assertIn((Severity.WARNING, "The configured proxy is not reachable"), found)
+
+    def test_proxy_only_split_dns_network_is_not_a_warning(self):
+        # ICMP blocked, internal DNS cannot resolve public names, all web via proxy: a healthy managed laptop.
+        skipped_tcp = CheckResult.skipped("connectivity.tcp_https", "TCP", "example.com did not resolve")
+        found = findings.connectivity_findings(GATEWAY, gw_ping(False), ip_ping(False), dns(False),
+                                               tcp=skipped_tcp, proxy_check=proxy(True))
+        self.assertEqual(titles(found), [(Severity.INFO, "Public name did not resolve; a proxy is configured")])
+
+    def test_no_claim_that_dns_proves_traffic_left_the_network(self):
+        for found in (findings.connectivity_findings(GATEWAY, gw_ping(False), ip_ping(False), dns(True)),
+                      findings.connectivity_findings(GATEWAY, gw_ping(True), ip_ping(False), dns(True))):
+            for finding in found:
+                self.assertNotIn("leaving", finding.explanation)
+                self.assertNotIn("had to travel", finding.explanation)
 
 class OverallStatusTests(unittest.TestCase):
     CORE = [CheckResult.ok("system.os", "OS", {}), CheckResult.ok("resources.memory", "Memory", {}),

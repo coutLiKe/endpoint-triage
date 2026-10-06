@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 def run_scan(os_name: str | None = None, run: RunFunc = run_command, read_file=read_text_file,
              resolver=socket.getaddrinfo, progress: Callable[[str], None] = lambda message: None,
              ping_target: str = connectivity.PUBLIC_IP_TARGET, dns_name: str = connectivity.DNS_TEST_HOSTNAME,
-             skip_updates: bool = False, environ=None) -> Report:
+             skip_updates: bool = False, environ=None, connector=socket.create_connection) -> Report:
     os_name = os_name or platform.system()
     started_at = datetime.now(timezone.utc)
     started = time.monotonic()
@@ -37,10 +37,12 @@ def run_scan(os_name: str | None = None, run: RunFunc = run_command, read_file=r
     checks["network"] = (_guarded("network", lambda: network.collect(os_name, run, read_file))
                          + _guarded("proxy", lambda: proxy.collect(os_name, run, environ)))
 
-    progress("Testing connectivity (gateway, public IP, DNS)")
+    progress("Testing connectivity (ping, DNS, TCP)")
     gateway = next((c for c in checks["network"] if c.id == network.GATEWAY_ID), None)
+    proxy_check = next((c for c in checks["network"] if c.id == proxy.PROXY_ID), None)
     checks["connectivity"] = _guarded("connectivity", lambda: connectivity.collect(
-        os_name, gateway, run, resolver, ping_target=ping_target, dns_name=dns_name))
+        os_name, gateway, run, resolver, ping_target=ping_target, dns_name=dns_name,
+        proxy_check=proxy_check, connector=connector))
 
     if skip_updates:
         checks["updates"] = [CheckResult.skipped(updates.UPDATES_ID, updates.UPDATES_TITLE,

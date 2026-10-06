@@ -20,7 +20,6 @@ DISK_CRITICAL_FREE_BYTES = 5 * 1024 ** 3
 DISK_FREE_RULE_MIN_TOTAL_BYTES = 20 * 1024 ** 3
 MEMORY_WARNING_AVAILABLE_PERCENT = 10.0
 UPTIME_INFO_DAYS = 30
-DISCONNECTED_INTERFACES_INFO_COUNT = 2
 
 APIPA_PREFIX = "169.254."
 
@@ -38,6 +37,9 @@ def analyze(report: Report) -> list[Finding]:
         report.get("connectivity.gateway_ping"),
         report.get("connectivity.public_ip_ping"),
         report.get("connectivity.dns_resolution"),
+        tcp=report.get("connectivity.tcp_https"),
+        proxy_check=report.get("network.proxy"),
+        proxy_tcp=report.get("connectivity.proxy_tcp"),
     )
     findings += update_findings(report.get("updates.os"))
     # Most severe first; sorted() is stable so equal severities keep their order.
@@ -133,13 +135,8 @@ def interface_findings(check: CheckResult | None) -> list[Finding]:
             [f"{i['name']}: {i['status']}, IPv4: {', '.join(i['ipv4']) or 'none'}" for i in interfaces]
             or ["No network interfaces found"]))
 
-    down = [i["name"] for i in interfaces if i["status"] == "down"]
-    if len(down) >= DISCONNECTED_INTERFACES_INFO_COUNT:
-        findings.append(Finding(
-            "network.interfaces_disconnected", Severity.INFO, "Multiple network interfaces are disconnected",
-            "Several interfaces are down. This is normal for unused ports or adapters, but confirm "
-            "the interface the user expects to be using is connected.",
-            [f"Disconnected: {', '.join(down)}"]))
+    # Unused ports (Thunderbolt, Bluetooth, spare Ethernet) being down is normal
+    # on every laptop, so they are listed in the report, not raised as a finding.
     return findings
 
 
@@ -194,17 +191,37 @@ def _dns_evidence(check: CheckResult | None) -> str:
     return f"Resolve {host}: failed ({check.error})"
 
 
-def connectivity_findings(gateway: CheckResult | None, gateway_ping: CheckResult | None,
-                          public_ping: CheckResult | None, dns: CheckResult | None) -> list[Finding]:
-    """Compare the three connectivity tests to suggest where a problem lies.
+def _tcp_evidence(check: CheckResult | None) -> str | None:
+    if check is None or check.status == Status.SKIPPED:
+        return None
+    target = f"{check.data.get('target', '?')}:{check.data.get('port', '?')}"
+    if check.status == Status.OK:
+        return f"TCP {target}: connected ({check.data['duration_ms']:.0f} ms)"
+    return f"TCP {target}: {check.error}"
 
-    gateway fails + public IP fails -> local network problem
-    gateway OK    + public IP fails -> problem beyond the local network
-    public IP OK  + DNS fails       -> DNS problem
+
+def connectivity_findings(gateway: CheckResult | None, gateway_ping: CheckResult | None,
+                          public_ping: CheckResult | None, dns: CheckResult | None,
+                          tcp: CheckResult | None = None, proxy_check: CheckResult | None = None,
+                          proxy_tcp: CheckResult | None = None) -> list[Finding]:
+    """Combine the connectivity tests to suggest where a problem lies.
+
+    A completed TCP connection is the strongest evidence, so it is checked
+    first; ping is only used to explain the rest:
+
+    TCP to <dns-name>:443 works         -> network path is fine; failed pings mean ICMP is filtered
+    DNS works, TCP fails, proxy set     -> expected if all web traffic must use the proxy
+    DNS works, TCP fails, no proxy      -> outbound HTTPS blocked (or a proxy is required)
+    DNS fails, ping target answers      -> DNS problem
+    DNS fails, gateway + target silent  -> local network problem
+    DNS fails, gateway answers only     -> problem beyond the local network
     """
     findings = []
     evidence = [_ping_evidence(gateway_ping), _ping_evidence(public_ping), _dns_evidence(dns)]
+    evidence += [e for e in (_tcp_evidence(tcp), _tcp_evidence(proxy_tcp)) if e]
     gateway_failed, public_ok, public_failed = _failed(gateway_ping), _ok(public_ping), _failed(public_ping)
+    proxy_configured = _ok(proxy_check) and proxy_check.data.get("configured")
+    host = dns.data.get("hostname", "the test hostname") if dns else "the test hostname"
 
     if _ok(gateway) and not gateway.data.get("gateway"):
         findings.append(Finding(
@@ -213,50 +230,112 @@ def connectivity_findings(gateway: CheckResult | None, gateway_ping: CheckResult
             "means the device is not connected or did not receive a full DHCP configuration.",
             ["Default gateway: none"]))
 
-    if gateway_failed and public_failed and _ok(dns):
+    if _failed(proxy_tcp):
         findings.append(Finding(
-            "connectivity.ping_blocked", Severity.INFO, "Ping appears to be blocked",
-            "Neither the gateway nor a public IP address answered ping, but DNS resolution worked. "
-            "Because DNS answers had to travel over the network, ping (ICMP) is most likely being "
-            "filtered, which is common on corporate and cloud networks. If the user still reports "
-            "problems, note that a DNS answer can come from a local cache.", evidence))
-    elif gateway_failed and public_failed:
-        findings.append(Finding(
-            "connectivity.local_network_unreachable", Severity.WARNING, "Local network or gateway unreachable",
-            "Neither the default gateway nor a public IP address responded. The problem is likely on "
-            "the local network (cable, Wi-Fi, switch port, VLAN, or the router itself).", evidence))
-    elif gateway_failed and public_ok:
-        findings.append(Finding(
-            "connectivity.gateway_no_ping_reply", Severity.INFO, "Default gateway did not respond to ping",
-            "The gateway did not answer ping, but internet connectivity works. Many routers and "
-            "firewalls ignore ping, so this is usually not a problem by itself.", evidence))
-    elif public_failed and _ok(dns):
-        # Normal behind corporate firewalls that only allow traffic through a proxy.
-        findings.append(Finding(
-            "connectivity.public_ip_no_ping_reply", Severity.INFO, "Public IP address did not respond to ping",
-            "The public IP address did not answer ping, but DNS resolution worked, so traffic is "
-            "leaving the local network. Outbound ping (ICMP) is most likely blocked by a firewall.",
-            evidence))
-    elif public_failed:
-        findings.append(Finding(
-            "connectivity.internet_unreachable", Severity.WARNING, "Public IP address unreachable",
-            "A public IP address did not respond and DNS resolution also failed. If the gateway "
-            "responded, the problem is likely beyond the local network (ISP, upstream firewall, "
-            "or a required proxy).", evidence))
+            "connectivity.proxy_unreachable", Severity.WARNING, "The configured proxy is not reachable",
+            "A proxy is configured but did not accept a TCP connection. Browsers and apps that use "
+            "the proxy will fail to load websites. Check that the proxy server is up and that this "
+            "network can reach it (for example, the VPN may be required).", evidence))
+
+    if _ok(tcp):
+        # A real connection to an internet service worked, so the path is fine.
+        reason = (f"a direct TCP connection to {host}:{tcp.data['port']} succeeded, so the network "
+                  "path works and ping (ICMP) is being filtered. This is common on corporate and "
+                  "cloud networks and is not a problem by itself.")
+        if gateway_failed and public_failed:
+            findings.append(Finding("connectivity.ping_blocked", Severity.INFO, "Ping appears to be blocked",
+                                    f"Neither ping test got a reply, but {reason}", evidence))
+        elif gateway_failed:
+            findings.append(Finding("connectivity.gateway_no_ping_reply", Severity.INFO,
+                                    "Default gateway did not respond to ping",
+                                    f"The gateway did not answer ping, but {reason}", evidence))
+        elif public_failed:
+            findings.append(Finding("connectivity.public_ip_no_ping_reply", Severity.INFO,
+                                    "Public IP address did not respond to ping",
+                                    f"The ping target did not answer, but {reason}", evidence))
+        return findings
+
+    if _ok(dns) and _failed(tcp):
+        if proxy_configured:
+            findings.append(Finding(
+                "connectivity.direct_https_blocked_proxy", Severity.INFO,
+                "Direct HTTPS is blocked; a proxy is configured",
+                f"A direct TCP connection to {host}:{tcp.data['port']} failed, and a proxy is "
+                "configured. This is expected on networks where all web traffic must go through "
+                "the proxy, so websites depend on the proxy working.", evidence))
+        else:
+            findings.append(Finding(
+                "connectivity.https_blocked", Severity.WARNING, "Outbound HTTPS connection failed",
+                f"{host} resolved, but a TCP connection to port {tcp.data['port']} failed and no "
+                "proxy is configured. A firewall may be blocking outbound HTTPS, or the network "
+                "requires a proxy that is not set up on this machine.", evidence))
+        return findings
 
     if _failed(dns):
-        if public_failed:
+        if public_ok:
+            # IP connectivity works but names do not resolve: a DNS problem, proxy or not.
+            explanation = (f"DNS resolution failed for {host}, but the public IP connectivity test "
+                           "succeeded. This may indicate a DNS configuration or DNS server issue.")
+            if proxy_configured:
+                explanation += (" A proxy is configured; if this network resolves public names "
+                                "only through the proxy, this can be expected.")
+            findings.append(Finding("connectivity.dns_failed", Severity.WARNING, "DNS resolution failed",
+                                    explanation, evidence))
+        elif proxy_configured:
             findings.append(Finding(
-                "connectivity.dns_failed_no_internet", Severity.INFO, "DNS resolution also failed",
-                "DNS resolution failed, which is expected when there is no internet connectivity. "
-                "Re-test DNS after connectivity is restored.", evidence))
+                "connectivity.dns_failed_proxy_network", Severity.INFO,
+                "Public name did not resolve; a proxy is configured",
+                f"{host} did not resolve and direct pings failed, but a proxy is configured. On "
+                "proxy networks the internal DNS often cannot resolve public names because the proxy "
+                "resolves them instead, so this can be normal. Re-run with --dns-name set to an "
+                "internal hostname to test internal DNS.", evidence))
+        elif gateway_failed and public_failed:
+            findings.append(Finding(
+                "connectivity.local_network_unreachable", Severity.WARNING,
+                "Local network or gateway unreachable",
+                "Neither the default gateway nor the ping target responded, and DNS failed. The "
+                "problem is likely on the local network (cable, Wi-Fi, switch port, VLAN, or the "
+                "router itself).", evidence))
+            findings.append(_dns_failed_no_internet(evidence))
+        elif public_failed:
+            findings.append(Finding(
+                "connectivity.internet_unreachable", Severity.WARNING, "Public IP address unreachable",
+                "The ping target did not respond and DNS resolution failed. If the gateway "
+                "responded, the problem is likely beyond the local network (ISP, upstream "
+                "firewall, or a VPN that is required but not connected).", evidence))
+            findings.append(_dns_failed_no_internet(evidence))
         else:
-            explanation = f"DNS resolution failed for {dns.data.get('hostname', 'the test hostname')}"
-            explanation += (", but the public IP connectivity test succeeded. This may indicate a DNS "
-                            "configuration or DNS server issue." if public_ok else
-                            ". Check the configured DNS servers.")
-            findings.append(Finding("connectivity.dns_failed", Severity.WARNING, "DNS resolution failed", explanation, evidence))
+            findings.append(Finding(
+                "connectivity.dns_failed", Severity.WARNING, "DNS resolution failed",
+                f"DNS resolution failed for {host}. Check the configured DNS servers.", evidence))
+        return findings
+
+    # DNS worked but the TCP test did not run: only ping evidence is left, which
+    # cannot prove where traffic goes, so these stay informational.
+    if gateway_failed and public_failed:
+        findings.append(Finding("connectivity.ping_blocked", Severity.INFO, "Ping appears to be blocked",
+                                "Neither ping test got a reply, but DNS resolution worked. Ping may be "
+                                "filtered; the TCP test did not run, so the path was not confirmed.",
+                                evidence))
+    elif gateway_failed and public_ok:
+        findings.append(Finding("connectivity.gateway_no_ping_reply", Severity.INFO,
+                                "Default gateway did not respond to ping",
+                                "The gateway did not answer ping, but the ping target did. Many "
+                                "routers ignore ping, so this is usually not a problem.", evidence))
+    elif public_failed:
+        findings.append(Finding("connectivity.public_ip_no_ping_reply", Severity.INFO,
+                                "Public IP address did not respond to ping",
+                                "The ping target did not answer, but DNS resolution worked. Outbound "
+                                "ping may be blocked; the TCP test did not run, so the path was not "
+                                "confirmed.", evidence))
     return findings
+
+
+def _dns_failed_no_internet(evidence: list[str]) -> Finding:
+    return Finding(
+        "connectivity.dns_failed_no_internet", Severity.INFO, "DNS resolution also failed",
+        "DNS resolution failed, which is expected when there is no internet connectivity. "
+        "Re-test DNS after connectivity is restored.", evidence)
 
 
 # -------------------------------------------------------------- updates

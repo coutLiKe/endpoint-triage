@@ -90,7 +90,7 @@ class JsonReportTests(unittest.TestCase):
         summary = self.data["summary"]
         self.assertEqual(summary["overall_status"], "CRITICAL")
         self.assertEqual(summary["finding_counts"], {"CRITICAL": 1, "WARNING": 1, "INFO": 2})
-        self.assertEqual(summary["check_counts"], {"ok": 10, "failed": 2, "unavailable": 0, "skipped": 0})
+        self.assertEqual(summary["check_counts"], {"ok": 10, "failed": 2, "unavailable": 0, "skipped": 2})
 
     def test_findings_shape(self):
         for finding in self.data["findings"]:

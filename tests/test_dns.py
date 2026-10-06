@@ -101,7 +101,8 @@ class DnsResolutionSpec(unittest.TestCase):
             seen.append(host)
             return addrinfo("93.184.215.14")
 
-        checks = connectivity.collect("Linux", None, run=FakeRunner(), resolver=resolver)
+        checks = connectivity.collect("Linux", None, run=FakeRunner(), resolver=resolver,
+                                      connector=lambda address, timeout=None: type("C", (), {"close": lambda self: None})())
         dns = [c for c in checks if c.id == "connectivity.dns_resolution"]
         self.assertEqual(len(dns), 1)
         self.assertEqual(dns[0].status, Status.OK)

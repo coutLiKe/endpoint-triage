@@ -9,7 +9,7 @@ Summary
   Operating system  : Microsoft Windows 11 Pro
   Overall status    : CRITICAL
   Findings          : 1 critical, 1 warning, 2 info
-  Checks            : 10 ok, 2 failed, 0 unavailable, 0 skipped
+  Checks            : 10 ok, 2 failed, 0 unavailable, 2 skipped
   Scan duration     : 7.4 s
   Test targets      : ping 1.1.1.1, resolve example.com
 
@@ -23,7 +23,9 @@ Findings
 
 [WARNING] DNS resolution failed
   DNS resolution failed for example.com, but the public IP connectivity test
-  succeeded. This may indicate a DNS configuration or DNS server issue.
+  succeeded. This may indicate a DNS configuration or DNS server issue. A
+  proxy is configured; if this network resolves public names only through
+  the proxy, this can be expected.
   Evidence:
     - Ping 192.168.1.1: reply (3.0 ms)
     - Ping 1.1.1.1: reply (15.0 ms)
@@ -81,6 +83,8 @@ Connectivity Tests
   [OK]          Ping default gateway (192.168.1.1): reply, avg 3.0 ms
   [OK]          Ping public IP address (1.1.1.1): reply, avg 15.0 ms
   [FAILED]      Resolve public hostname (example.com): DNS lookup for example.com timed out after 5s
+  [SKIPPED]     TCP connection to port 443: example.com did not resolve
+  [SKIPPED]     TCP connection to proxy: only a PAC script or auto-detect is configured; the proxy is chosen per request
 
 Operating System Updates
 ------------------------

@@ -51,6 +51,9 @@ def build_sample_report(debug_detail: bool = True) -> Report:
             CheckResult.failed("connectivity.dns_resolution", "Resolve public hostname",
                                "DNS lookup for example.com timed out after 5s",
                                data={"hostname": "example.com", "addresses": [], "duration_ms": 5001.2}),
+            CheckResult.skipped("connectivity.tcp_https", "TCP connection to port 443", "example.com did not resolve"),
+            CheckResult.skipped("connectivity.proxy_tcp", "TCP connection to proxy",
+                                "only a PAC script or auto-detect is configured; the proxy is chosen per request"),
         ],
         "updates": [
             CheckResult.failed("updates.os", "Pending OS updates",

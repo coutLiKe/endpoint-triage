@@ -20,7 +20,7 @@
       "ok": 10,
       "failed": 2,
       "unavailable": 0,
-      "skipped": 0
+      "skipped": 2
     }
   },
   "scan_options": {
@@ -42,7 +42,7 @@
       "id": "connectivity.dns_failed",
       "severity": "WARNING",
       "title": "DNS resolution failed",
-      "explanation": "DNS resolution failed for example.com, but the public IP connectivity test succeeded. This may indicate a DNS configuration or DNS server issue.",
+      "explanation": "DNS resolution failed for example.com, but the public IP connectivity test succeeded. This may indicate a DNS configuration or DNS server issue. A proxy is configured; if this network resolves public names only through the proxy, this can be expected.",
       "evidence": [
         "Ping 192.168.1.1: reply (3.0 ms)",
         "Ping 1.1.1.1: reply (15.0 ms)",
@@ -243,6 +243,20 @@
           "duration_ms": 5001.2
         },
         "error": "DNS lookup for example.com timed out after 5s"
+      },
+      {
+        "id": "connectivity.tcp_https",
+        "title": "TCP connection to port 443",
+        "status": "skipped",
+        "data": {},
+        "error": "example.com did not resolve"
+      },
+      {
+        "id": "connectivity.proxy_tcp",
+        "title": "TCP connection to proxy",
+        "status": "skipped",
+        "data": {},
+        "error": "only a PAC script or auto-detect is configured; the proxy is chosen per request"
       }
     ],
     "updates": [
