@@ -95,6 +95,7 @@ jobs:
           if (-not (Select-String -Path clm-reports/*.txt -Pattern "blocked by policy" -Quiet)) {
             throw "Expected the update check to be reported as blocked by policy"
           }
+          exit 0  # the scan's own exit code (0-2) was checked above
 
       - name: Scan as a standard (non-admin) user
         shell: pwsh
@@ -120,6 +121,7 @@ jobs:
           Get-Content "$work\reports\*.txt"
           Write-Host "endpoint-triage exit code: $($proc.ExitCode)"
           if ($proc.ExitCode -gt 2) { throw "Core diagnostics failed for a standard user" }
+          exit 0
 
       - name: Upload lockdown reports
         if: always()
